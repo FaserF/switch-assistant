@@ -667,6 +667,18 @@ static void update_state_topic(const AppConfig *config, char *topic, size_t topi
     snprintf(topic, topic_size, "switch_ha/%s/update/firmware/state", safe_id);
 }
 
+static void overlay_event_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/event/action", safe_id);
+}
+
+static void call_service_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/call_service", safe_id);
+}
+
 static void notification_status_topic(const AppConfig *config, char *topic, size_t topic_size) {
     char safe_id[80];
     sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
@@ -1006,6 +1018,29 @@ static void publish_discovery_update(int fd, const AppConfig *config) {
     mqtt_send_publish(fd, topic, payload, true);
 }
 
+static void publish_discovery_event(int fd, const AppConfig *config) {
+    char topic[256];
+    char state_top[192];
+    char payload[MQTT_BUFFER];
+    char safe_id[80];
+
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    discovery_topic(config, "event", "overlay_action", topic, sizeof(topic));
+    overlay_event_topic(config, state_top, sizeof(state_top));
+
+    snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s Overlay Action\",\"uniq_id\":\"%s_overlay_action\","
+             "\"stat_t\":\"%s\",\"event_types\":[\"toggle\",\"turn_on\",\"turn_off\",\"press\",\"call_service\",\"quick_action_1\",\"quick_action_2\",\"quick_action_3\",\"quick_action_4\"],"
+             "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
+             config->device_name,
+             safe_id,
+             state_top,
+             safe_id,
+             config->device_name);
+
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
 static void clear_discovery_topic(int fd, const AppConfig *config, const char *component, const char *sensor) {
     char topic[256];
     discovery_topic(config, component, sensor, topic, sizeof(topic));
@@ -1051,6 +1086,7 @@ static void publish_sensor_discovery(AppState *state, int fd, const AppConfig *c
     publish_discovery_remote(fd, config);
     publish_discovery_media_player(fd, config);
     publish_discovery_update(fd, config);
+    publish_discovery_event(fd, config);
     publish_discovery_sensor(fd, config, "binary_sensor", "docked", "Docked", "plug", NULL, NULL);
     if (state->svc_ts_ready) {
         publish_discovery_sensor(fd, config, "sensor", "soc_temperature", "SoC Temperature", "temperature", "C", "measurement");
@@ -1632,6 +1668,77 @@ static void handle_notification_payload(AppState *state, int fd, const AppConfig
     app_state_push_log(state, "Notify %s: %.48s", mode, message);
 }
 
+static void process_overlay_commands(AppState *state, int fd, const AppConfig *config) {
+    FILE *file = fopen("sdmc:/switch/switch-ha/overlay-command.ini", "r");
+    if (!file) {
+        return;
+    }
+
+    char action[64] = "toggle";
+    char domain[64] = "";
+    char service[64] = "";
+    char entity_id[128] = "";
+    char name[128] = "";
+    char line[256];
+
+    while (fgets(line, sizeof(line), file)) {
+        trim_text(line);
+        char *sep = strchr(line, '=');
+        if (!sep) continue;
+        *sep = '\0';
+        const char *key = line;
+        const char *val = sep + 1;
+
+        if (strcasecmp(key, "action") == 0) {
+            snprintf(action, sizeof(action), "%s", val);
+        } else if (strcasecmp(key, "domain") == 0) {
+            snprintf(domain, sizeof(domain), "%s", val);
+        } else if (strcasecmp(key, "service") == 0) {
+            snprintf(service, sizeof(service), "%s", val);
+        } else if (strcasecmp(key, "entity_id") == 0) {
+            snprintf(entity_id, sizeof(entity_id), "%s", val);
+        } else if (strcasecmp(key, "name") == 0) {
+            snprintf(name, sizeof(name), "%s", val);
+        }
+    }
+    fclose(file);
+    remove("sdmc:/switch/switch-ha/overlay-command.ini");
+
+    if (domain[0] == '\0' && entity_id[0] != '\0') {
+        const char *dot = strchr(entity_id, '.');
+        if (dot && (size_t)(dot - entity_id) < sizeof(domain)) {
+            memcpy(domain, entity_id, dot - entity_id);
+            domain[dot - entity_id] = '\0';
+        }
+    }
+    if (service[0] == '\0') {
+        snprintf(service, sizeof(service), "%s", action);
+    }
+
+    char event_top[192];
+    char service_top[192];
+    overlay_event_topic(config, event_top, sizeof(event_top));
+    call_service_topic(config, service_top, sizeof(service_top));
+
+    char payload_event[256];
+    snprintf(payload_event, sizeof(payload_event),
+             "{\"event_type\":\"%s\",\"entity_id\":\"%s\",\"domain\":\"%s\",\"service\":\"%s\"}",
+             action, entity_id, domain, service);
+    mqtt_send_publish(fd, event_top, payload_event, false);
+
+    char payload_service[256];
+    snprintf(payload_service, sizeof(payload_service),
+             "{\"domain\":\"%s\",\"service\":\"%s\",\"entity_id\":\"%s\"}",
+             domain[0] ? domain : "homeassistant", service, entity_id);
+    mqtt_send_publish(fd, service_top, payload_service, false);
+
+    char toast[128];
+    const char *display_target = name[0] ? name : (entity_id[0] ? entity_id : action);
+    snprintf(toast, sizeof(toast), "HA Action: %s (%s)", display_target, service);
+    write_notification_files("popup", "HA Control", toast);
+    app_state_push_log(state, "Overlay command executed: %s", toast);
+}
+
 static void handle_mqtt_publish(AppState *state, int fd, const AppConfig *config, const unsigned char *buffer, int size) {
     int remaining = 0;
     int remaining_bytes = 0;
@@ -1860,6 +1967,7 @@ static void mqtt_loop(void *arg) {
             }
 
             u64 now = monotonic_ms();
+            process_overlay_commands(state, fd, &config);
             if (sensor_publish_requested || now - last_sensor_poll_ms >= SENSOR_POLL_INTERVAL_MS) {
                 publish_switch_sensors(state, fd, &config, &sensor_snapshot, false);
                 last_sensor_poll_ms = now;

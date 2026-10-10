@@ -54,10 +54,16 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 | `update` | `Firmware` | Firmware update tracker | Current installed FW version, release URL ([THZoria/NX_Firmware](https://github.com/THZoria/NX_Firmware/releases)) |
 | `sensor` | `Battery Level` | Battery charge percentage | `%` (0–100) |
 | `binary_sensor` | `Is Charging` | Battery charger connection | `ON` / `OFF` |
+| `binary_sensor` | `Docked` | Console dock status | `ON` / `OFF` |
 | `sensor` | `Charger Type` | Detected charger power rate | `unconnected`, `enough_power`, `low_power`, `not_supported` |
 | `sensor` | `Battery Voltage` | Real-time battery voltage | `mV` |
 | `sensor` | `Battery Temperature` | Battery temperature | `°C` |
 | `sensor` | `Battery Health` | Battery capacity health percentage | `%` |
+| `sensor` | `SoC Temperature` | Internal processor temperature | `°C` |
+| `sensor` | `Uptime` | Console system uptime | `s` |
+| `sensor` | `WiFi Signal Strength` | WiFi RSSI connection strength | `dBm` |
+| `sensor` | `SD Card Free Space` | Available storage space on SD card | `MB` |
+| `sensor` | `RAM Used` | Current system memory usage | `MB` |
 | `sensor` | `Screen Brightness` | Current display brightness level | `%` (0–100) |
 | `binary_sensor` | `Screen` | Screen backlight status | `ON` / `OFF` |
 | `sensor` | `Volume` | System audio volume | `%` (0–100) |
@@ -70,6 +76,7 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 | `sensor` | `Screen Stream URL` | RTSP live video stream URL | `rtsp://<switch_ip>:8554/` |
 | `button` | `Reboot` | Restarts the Switch console | Button press |
 | `button` | `Shutdown` | Powers down the Switch console | Button press |
+| `event` | `Overlay Action` | Events triggered from overlay / shortcuts | `toggle`, `turn_on`, `turn_off`, `call_service`, etc. |
 | `notify` | `Popup Notification` | In-game notification toast | Text message / JSON payload |
 
 ## Remote Control & Media Player Usage
@@ -96,6 +103,48 @@ data:
 
 ### Media Player Entity
 The media player entity automatically reflects whether the Switch is actively playing a game (`playing`), on the home menu (`idle`), or asleep (`off`). It displays the current game as the media title and allows direct volume slider control from standard media control cards.
+
+## Controlling Home Assistant Devices from an Overlay (UltraHand / Tesla / Shortcuts)
+
+You can trigger actions and control devices (e.g. lights, switches, scenes) in Home Assistant directly from an UltraHand overlay, Tesla menu, or homebrew script while in-game.
+
+When a command is triggered, Switch Assistant:
+1. Calls the corresponding service / publishes the event to Home Assistant via MQTT.
+2. Displays an in-game overlay toast confirming the action (e.g. `HA Action: Living Room Light (toggle)`).
+
+### How to Trigger from UltraHand / Tesla / Scripts
+
+Simply write a command file to `sdmc:/switch/switch-ha/overlay-command.ini`:
+
+```ini
+action=toggle
+entity_id=light.living_room
+name=Living Room Light
+```
+
+Or call any specific service:
+
+```ini
+action=call_service
+domain=scene
+service=turn_on
+entity_id=scene.gaming_night
+name=Gaming Mode
+```
+
+### Automations via MQTT Event Entity
+Switch Assistant automatically exposes an `event.nintendo_switch_overlay_action` entity in Home Assistant. You can create Home Assistant automations triggered whenever an overlay action is performed:
+
+```yaml
+alias: "Switch Overlay: Toggle Lights"
+trigger:
+  - platform: state
+    entity_id: event.nintendo_switch_overlay_action
+action:
+  - service: light.toggle
+    target:
+      entity_id: light.living_room
+```
 
 ## How It Works
 
