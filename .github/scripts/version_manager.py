@@ -74,7 +74,7 @@ def write_version(v, manifest_path=None):
         with open("version.mk", encoding="utf-8") as f:
             content = f.read()
         content = re.sub(
-            r'(APP_VERSION\s*\??=\s*)[^\r\n]+',
+            r"(APP_VERSION\s*\??=\s*)[^\r\n]+",
             rf"\g<1>{v}",
             content,
         )
