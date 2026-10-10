@@ -28,12 +28,7 @@ jobs:
             python3 scripts/validate_sysmodule.py sysmodule/switch-ha-sysmodule.json
           fi
         
-      - name: Verify Sysmodule Compilation
+      - name: Verify Sysmodule, Overlay & App Compilation
         uses: docker://devkitpro/devkita64:latest
         with:
-          args: /bin/bash -c "export PATH=$PATH:/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin && cd sysmodule && make install-layout"
-
-      - name: Verify App Compilation
-        uses: docker://devkitpro/devkita64:latest
-        with:
-          args: /bin/bash -c "export PATH=$PATH:/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin && make"
+          args: /bin/bash -c "export PATH=$PATH:/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin && (cd sysmodule && make install-layout) && (cd overlay && make) && (cd overlay-loader && make install-layout) && mkdir -p romfs/sysmodule romfs/overlay-loader romfs/overlay && cp sysmodule/atmosphere/contents/00FF000053484101/exefs.nsp romfs/sysmodule/exefs.nsp && touch romfs/sysmodule/boot2.flag && cp overlay-loader/atmosphere/contents/00FF000053484102/exefs.nsp romfs/overlay-loader/exefs.nsp && touch romfs/overlay-loader/boot2.flag && cp overlay/switch-ha-overlay.ovl romfs/overlay/switch-ha-overlay.ovl && rm -rf build switch-ha.elf switch-ha.nro && make"
