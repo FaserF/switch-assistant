@@ -190,6 +190,9 @@ jobs:
           if [ -f sysmodule/switch-ha-sysmodule.json ]; then
             python3 scripts/validate_sysmodule.py sysmodule/switch-ha-sysmodule.json
           fi
+          if [ -f overlay-loader/switch-ha-overlay-loader.json ]; then
+            python3 scripts/validate_sysmodule.py overlay-loader/switch-ha-overlay-loader.json
+          fi
 
       - name: Verify Sysmodule, Overlay & App Compilation
         if: steps.check.outputs.has_switch_code == 'true'
