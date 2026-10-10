@@ -144,7 +144,7 @@ static void publish_discovery_remote(int fd, const AppConfig *config) {
     char options_json[16384];
     title_cache_build_json_options_array(options_json, sizeof(options_json));
 
-    size_t payload_size = sizeof(options_json) + 1024;
+    size_t payload_size = sizeof(options_json) + 2048;
     char *payload = malloc(payload_size);
     if (!payload) {
         return;
@@ -192,7 +192,7 @@ static void publish_discovery_media_player(int fd, const AppConfig *config) {
     char options_json[16384];
     title_cache_build_json_options_array(options_json, sizeof(options_json));
 
-    size_t payload_size = sizeof(options_json) + 1024;
+    size_t payload_size = sizeof(options_json) + 2048;
     char *payload = malloc(payload_size);
     if (!payload) {
         return;
@@ -235,7 +235,7 @@ static void publish_discovery_select_game(int fd, const AppConfig *config) {
     char options_json[16384];
     title_cache_build_json_options_array(options_json, sizeof(options_json));
 
-    size_t payload_size = sizeof(options_json) + 1024;
+    size_t payload_size = sizeof(options_json) + 2048;
     char *payload = malloc(payload_size);
     if (!payload) {
         return;
@@ -282,7 +282,7 @@ static void publish_discovery_select_game_players(int fd, const AppConfig *confi
     char options_json[16384];
     title_cache_build_json_options_array_for_players(options_json, sizeof(options_json), min_players);
 
-    size_t payload_size = sizeof(options_json) + 1024;
+    size_t payload_size = sizeof(options_json) + 2048;
     char *payload = malloc(payload_size);
     if (!payload) {
         return;
@@ -339,22 +339,25 @@ static void publish_discovery_sensor_games_count(int fd, const AppConfig *config
 static void publish_discovery_update(int fd, const AppConfig *config) {
     char topic[256];
     char state_top[192];
+    char cmd_top[192];
     char payload[MQTT_BUFFER];
     char safe_id[80];
 
     mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
     mqtt_discovery_topic(config, "update", "firmware", topic, sizeof(topic));
     mqtt_update_state_topic(config, state_top, sizeof(state_top));
+    mqtt_update_command_topic(config, cmd_top, sizeof(cmd_top));
 
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"%s Firmware\",\"uniq_id\":\"%s_firmware\",\"stat_t\":\"%s\","
+             "{\"name\":\"%s Firmware\",\"uniq_id\":\"%s_firmware\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\","
              "\"title\":\"Nintendo Switch Firmware\",\"dev_cla\":\"firmware\","
              "\"release_url\":\"https://github.com/THZoria/NX_Firmware/releases\","
-             "\"entity_picture\":\"https://raw.githubusercontent.com/ErSeraph/switch-assistant/main/assets/icon.jpg\","
+             "\"entity_picture\":\"https://raw.githubusercontent.com/FaserF/switch-assistant/main/assets/icon.jpg\","
              "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
              config->device_name,
              safe_id,
              state_top,
+             cmd_top,
              safe_id,
              config->device_name);
 
@@ -428,6 +431,7 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
         publish_discovery_button(fd, config, "reboot", "Reboot", "reboot");
         publish_discovery_button(fd, config, "shutdown", "Shutdown", "shutdown");
     }
+    publish_discovery_button(fd, config, "launch_daybreak", "Launch Daybreak", "launch_daybreak");
     title_cache_refresh_installed_games();
     publish_discovery_remote(fd, config);
     publish_discovery_media_player(fd, config);
