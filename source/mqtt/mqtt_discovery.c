@@ -8,7 +8,7 @@
 
 static void publish_discovery_sensor_ext(int fd, const AppConfig *config, const char *component, const char *sensor,
                                          const char *name, const char *device_class, const char *unit, const char *state_class,
-                                         const char *entity_category, const char *icon) {
+                                         const char *entity_category, const char *icon, bool enabled_by_default) {
     char topic[256];
     char state[192];
     char payload[MQTT_BUFFER];
@@ -19,7 +19,7 @@ static void publish_discovery_sensor_ext(int fd, const AppConfig *config, const 
     mqtt_state_topic(config, sensor, state, sizeof(state));
 
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"%s\",\"uniq_id\":\"%s_%s\",\"stat_t\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}%s%s%s}",
+             "{\"name\":\"%s\",\"uniq_id\":\"%s_%s\",\"stat_t\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}%s%s%s%s}",
              name,
              safe_id,
              sensor,
@@ -28,7 +28,8 @@ static void publish_discovery_sensor_ext(int fd, const AppConfig *config, const 
              config->device_name,
              device_class ? ",\"dev_cla\":\"" : "",
              device_class ? device_class : "",
-             device_class ? "\"" : "");
+             device_class ? "\"" : "",
+             !enabled_by_default ? ",\"enabled_by_default\":false" : "");
 
     if (unit) {
         size_t len = strlen(payload);
@@ -64,7 +65,13 @@ static void publish_discovery_sensor_ext(int fd, const AppConfig *config, const 
 
 static void publish_discovery_sensor(int fd, const AppConfig *config, const char *component, const char *sensor,
                                      const char *name, const char *device_class, const char *unit, const char *state_class) {
-    publish_discovery_sensor_ext(fd, config, component, sensor, name, device_class, unit, state_class, NULL, NULL);
+    publish_discovery_sensor_ext(fd, config, component, sensor, name, device_class, unit, state_class, NULL, NULL, true);
+}
+
+static void publish_discovery_sensor_disabled(int fd, const AppConfig *config, const char *component, const char *sensor,
+                                              const char *name, const char *device_class, const char *unit, const char *state_class,
+                                              const char *entity_category, const char *icon) {
+    publish_discovery_sensor_ext(fd, config, component, sensor, name, device_class, unit, state_class, entity_category, icon, false);
 }
 
 static void publish_discovery_button(int fd, const AppConfig *config, const char *button, const char *name, const char *payload_press) {
@@ -384,25 +391,27 @@ void mqtt_clear_discovery_topic(int fd, const AppConfig *config, const char *com
 }
 
 void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *config) {
-    // Home Assistant Battery Integration
-    publish_discovery_sensor_ext(fd, config, "sensor", "battery", "Battery", "battery", "%", "measurement", NULL, NULL);
-    publish_discovery_sensor_ext(fd, config, "binary_sensor", "charging", "Battery Charging", "battery_charging", NULL, NULL, NULL, NULL);
-    publish_discovery_sensor_ext(fd, config, "sensor", "charger_type", "Charger Type", NULL, NULL, NULL, "diagnostic", "mdi:power-plug");
-    publish_discovery_sensor_ext(fd, config, "sensor", "battery_voltage", "Battery Voltage", "voltage", "mV", "measurement", "diagnostic", "mdi:sine-wave");
-    publish_discovery_sensor_ext(fd, config, "sensor", "battery_temperature", "Battery Temperature", "temperature", "C", "measurement", "diagnostic", "mdi:thermometer");
-    publish_discovery_sensor_ext(fd, config, "sensor", "battery_health", "Battery Health", NULL, "%", "measurement", "diagnostic", "mdi:battery-heart-variant");
+    // Home Assistant Battery Integration (Core battery % and charging stay enabled)
+    publish_discovery_sensor_ext(fd, config, "sensor", "battery", "Battery", "battery", "%", "measurement", NULL, NULL, true);
+    publish_discovery_sensor_ext(fd, config, "binary_sensor", "charging", "Battery Charging", "battery_charging", NULL, NULL, NULL, NULL, true);
+
+    // Advanced battery telemetry -> disabled by default
+    publish_discovery_sensor_disabled(fd, config, "sensor", "charger_type", "Charger Type", NULL, NULL, NULL, "diagnostic", "mdi:power-plug");
+    publish_discovery_sensor_disabled(fd, config, "sensor", "battery_voltage", "Battery Voltage", "voltage", "mV", "measurement", "diagnostic", "mdi:sine-wave");
+    publish_discovery_sensor_disabled(fd, config, "sensor", "battery_temperature", "Battery Temperature", "temperature", "C", "measurement", "diagnostic", "mdi:thermometer");
+    publish_discovery_sensor_disabled(fd, config, "sensor", "battery_health", "Battery Health", NULL, "%", "measurement", "diagnostic", "mdi:battery-heart-variant");
 
     if (state->svc_lbl_ready) {
-        publish_discovery_sensor(fd, config, "sensor", "brightness", "Screen Brightness", NULL, "%", "measurement");
-        publish_discovery_sensor(fd, config, "binary_sensor", "backlight", "Screen", NULL, NULL, NULL);
+        publish_discovery_sensor_disabled(fd, config, "sensor", "brightness", "Screen Brightness", NULL, "%", "measurement", "diagnostic", "mdi:brightness-6");
+        publish_discovery_sensor_disabled(fd, config, "binary_sensor", "backlight", "Screen", NULL, NULL, NULL, "diagnostic", "mdi:television-ambient-light");
     }
     if (state->svc_audctl_ready) {
-        publish_discovery_sensor(fd, config, "sensor", "volume", "Volume", NULL, "%", "measurement");
-        publish_discovery_sensor(fd, config, "sensor", "audio_target", "Audio Output Target", NULL, NULL, NULL);
+        publish_discovery_sensor_disabled(fd, config, "sensor", "volume", "Volume", NULL, "%", "measurement", "diagnostic", "mdi:volume-high");
+        publish_discovery_sensor_disabled(fd, config, "sensor", "audio_target", "Audio Output Target", NULL, NULL, NULL, "diagnostic", "mdi:speaker");
     }
     publish_discovery_sensor(fd, config, "binary_sensor", "game_running", "Game Running", "running", NULL, NULL);
     publish_discovery_sensor(fd, config, "sensor", "current_game", "Current Game", NULL, NULL, NULL);
-    publish_discovery_sensor(fd, config, "sensor", "current_game_id", "Current Game Title ID", NULL, NULL, NULL);
+    publish_discovery_sensor_disabled(fd, config, "sensor", "current_game_id", "Current Game Title ID", NULL, NULL, NULL, "diagnostic", "mdi:identifier");
     mqtt_clear_discovery_topic(fd, config, "sensor", "current_game_name");
     mqtt_clear_discovery_topic(fd, config, "sensor", "game_pid");
     if (state->svc_hid_ready) {
@@ -412,7 +421,7 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
             char name[32];
             snprintf(sensor, sizeof(sensor), "player_%d_controller", i + 1);
             snprintf(name, sizeof(name), "Player %d Controller", i + 1);
-            publish_discovery_sensor(fd, config, "sensor", sensor, name, NULL, NULL, NULL);
+            publish_discovery_sensor_disabled(fd, config, "sensor", sensor, name, NULL, NULL, NULL, "diagnostic", "mdi:controller");
         }
     }
     if (state->svc_spsm_ready) {
@@ -433,16 +442,16 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     publish_discovery_event(fd, config);
     publish_discovery_sensor(fd, config, "binary_sensor", "docked", "Docked", "plug", NULL, NULL);
     if (state->svc_ts_ready) {
-        publish_discovery_sensor(fd, config, "sensor", "soc_temperature", "SoC Temperature", "temperature", "C", "measurement");
+        publish_discovery_sensor_disabled(fd, config, "sensor", "soc_temperature", "SoC Temperature", "temperature", "C", "measurement", "diagnostic", "mdi:thermometer-lines");
     }
-    publish_discovery_sensor(fd, config, "sensor", "uptime", "Uptime", "duration", "s", "total_increasing");
+    publish_discovery_sensor_disabled(fd, config, "sensor", "uptime", "Uptime", "duration", "s", "total_increasing", "diagnostic", "mdi:clock-outline");
     if (state->svc_nifm_ready) {
-        publish_discovery_sensor(fd, config, "sensor", "wifi_rssi", "WiFi Signal Strength", "signal_strength", "dBm", "measurement");
+        publish_discovery_sensor_disabled(fd, config, "sensor", "wifi_rssi", "WiFi Signal Strength", "signal_strength", "dBm", "measurement", "diagnostic", "mdi:wifi");
     }
-    publish_discovery_sensor(fd, config, "sensor", "sd_free", "SD Card Free Space", "data_size", "MB", "measurement");
-    publish_discovery_sensor(fd, config, "sensor", "memory_used", "RAM Used", "data_size", "MB", "measurement");
+    publish_discovery_sensor_disabled(fd, config, "sensor", "sd_free", "SD Card Free Space", "data_size", "MB", "measurement", "diagnostic", "mdi:micro-sd");
+    publish_discovery_sensor_disabled(fd, config, "sensor", "memory_used", "RAM Used", "data_size", "MB", "measurement", "diagnostic", "mdi:memory");
     if (state->app_mode == AppMode_Sysmodule) {
-        publish_discovery_sensor(fd, config, "sensor", SCREEN_RTSP_URL_SENSOR, "Screen Stream URL", NULL, NULL, NULL);
+        publish_discovery_sensor_disabled(fd, config, "sensor", SCREEN_RTSP_URL_SENSOR, "Screen Stream URL", NULL, NULL, NULL, "diagnostic", "mdi:video");
         mqtt_clear_discovery_topic(fd, config, "sensor", "screen_stream_status");
         mqtt_clear_discovery_topic(fd, config, "sensor", "screen_rtsp_port");
         mqtt_clear_discovery_topic(fd, config, "camera", "screen_camera");

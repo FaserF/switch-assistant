@@ -35,8 +35,10 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 
 ## What It Does
 
-- **Remote Control Entity**: Control your Nintendo Switch like a smart TV / remote in Home Assistant (power, sleep/wake, volume up/down/mute, brightness, reboot, shutdown).
-- **Media Player Entity**: Track playing state, view current game title, and control volume directly with standard media player controls.
+- **Remote Control Entity**: Control your Nintendo Switch like a smart TV / remote in Home Assistant (power, sleep/wake, volume up/down/mute, brightness, reboot, shutdown, activity / channel switcher).
+- **Media Player Entity**: Track playing state, view current game title, control volume, and launch installed games directly from the source / channel list.
+- **Game Launcher & Player Filters**: Dedicated `select` entities for all installed games as well as filtered by player count (2 Player, 4 Player, 8/8+ Player games). Selecting a game instantly launches it on the console.
+- **Player Count Sensors**: Reports the number and list of installed multiplayer games (2p, 4p, 8p+) with full JSON attributes for automations and dashboard cards.
 - **Firmware Update Entity**: Shows installed firmware version with direct links to [THZoria/NX_Firmware Releases](https://github.com/THZoria/NX_Firmware/releases).
 - **Console & Battery Telemetry**: Shows battery level, charging state, voltage, temperature, health, screen brightness, volume, audio output target, and connected controllers.
 - **Game Detection**: Reports whether a game is currently running and publishes the current game Title ID and localized title name.
@@ -47,39 +49,71 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 
 ## Supported Home Assistant Entities
 
-| Domain | Entity | Description | Type / Values |
-| --- | --- | --- | --- |
-| `remote` | `Remote` | TV-style remote control | Power on/off, sleep/wake, volume, brightness, reboot, shutdown |
-| `media_player` | `MediaPlayer` | Media player controller | State (`playing`, `idle`, `off`), volume slider, current game title |
-| `update` | `Firmware` | Firmware update tracker | Current installed FW version, release URL ([THZoria/NX_Firmware](https://github.com/THZoria/NX_Firmware/releases)) |
-| `sensor` | `Battery` | Device battery percentage (HA Battery integration) | `%` (0–100, `device_class: battery`) |
-| `binary_sensor` | `Battery Charging` | Charger connected / charging status | `ON` / `OFF` (`device_class: battery_charging`) |
-| `binary_sensor` | `Docked` | Console dock status | `ON` / `OFF` |
-| `sensor` | `Charger Type` | Detected charger power rate (Diagnostic) | `unconnected`, `enough_power`, `low_power`, `not_supported` |
-| `sensor` | `Battery Voltage` | Real-time battery voltage (Diagnostic) | `mV` |
-| `sensor` | `Battery Temperature` | Battery temperature (Diagnostic) | `°C` |
-| `sensor` | `Battery Health` | Battery capacity health percentage (Diagnostic) | `%` |
-| `sensor` | `SoC Temperature` | Internal processor temperature | `°C` |
-| `sensor` | `Uptime` | Console system uptime | `s` |
-| `sensor` | `WiFi Signal Strength` | WiFi RSSI connection strength | `dBm` |
-| `sensor` | `SD Card Free Space` | Available storage space on SD card | `MB` |
-| `sensor` | `RAM Used` | Current system memory usage | `MB` |
-| `sensor` | `Screen Brightness` | Current display brightness level | `%` (0–100) |
-| `binary_sensor` | `Screen` | Screen backlight status | `ON` / `OFF` |
-| `sensor` | `Volume` | System audio volume | `%` (0–100) |
-| `sensor` | `Audio Output Target` | Active audio endpoint | `speaker`, `headphone`, `tv`, `usb`, `bluetooth` |
-| `binary_sensor` | `Game Running` | Status if a game is active | `ON` / `OFF` |
-| `sensor` | `Current Game` | Name of the running game | Game Title String |
-| `sensor` | `Current Game Title ID` | Hex Title ID of running game | 16-character hex (e.g. `0100000000010000`) |
-| `sensor` | `Player Count` | Number of active player controllers | `0` – `8` |
-| `sensor` | `Player 1–8 Controller` | Controller model per player slot | `handheld`, `joydual`, `joyleft`, `joyright`, `pro`, `gamecube`, `snes`, `n64`, `genesis` |
-| `sensor` | `Screen Stream URL` | RTSP live video stream URL | `rtsp://<switch_ip>:8554/` |
-| `button` | `Reboot` | Restarts the Switch console | Button press |
-| `button` | `Shutdown` | Powers down the Switch console | Button press |
-| `event` | `Overlay Action` | Events triggered from overlay / shortcuts | `toggle`, `turn_on`, `turn_off`, `call_service`, etc. |
-| `notify` | `Popup Notification` | In-game notification toast | Text message / JSON payload |
+| Domain | Entity | Description | Default Status | Type / Values |
+| --- | --- | --- | --- | --- |
+| `remote` | `Remote` | TV-style remote control | **Enabled** | Power on/off, sleep/wake, volume, brightness, reboot, shutdown, activity (game launch) |
+| `media_player` | `MediaPlayer` | Media player controller | **Enabled** | State (`playing`, `idle`, `off`), volume slider, current game title, source selector (game launch) |
+| `select` | `Game Launcher` | Switch installed games picker | **Enabled** | Channel/game picker (select title to launch) |
+| `select` | `2 Player Games` | Installed 2+ player games picker | **Enabled** | Select title to launch |
+| `select` | `4 Player Games` | Installed 4+ player games picker | **Enabled** | Select title to launch |
+| `select` | `8 Player Games` | Installed 8+ player games picker | **Enabled** | Select title to launch |
+| `sensor` | `2 Player Games Count` | Count & list of 2+ player games | **Enabled** | Integer count, `games` attribute list |
+| `sensor` | `4 Player Games Count` | Count & list of 4+ player games | **Enabled** | Integer count, `games` attribute list |
+| `sensor` | `8 Player Games Count` | Count & list of 8+ player games | **Enabled** | Integer count, `games` attribute list |
+| `update` | `Firmware` | Firmware update tracker | **Enabled** | Current installed FW version, release URL ([THZoria/NX_Firmware](https://github.com/THZoria/NX_Firmware/releases)) |
+| `sensor` | `Battery` | Device battery percentage (HA Battery integration) | **Enabled** | `%` (0–100, `device_class: battery`) |
+| `binary_sensor` | `Battery Charging` | Charger connected / charging status | **Enabled** | `ON` / `OFF` (`device_class: battery_charging`) |
+| `binary_sensor` | `Docked` | Console dock status | **Enabled** | `ON` / `OFF` |
+| `binary_sensor` | `Game Running` | Status if a game is active | **Enabled** | `ON` / `OFF` |
+| `sensor` | `Current Game` | Name of the running game | **Enabled** | Game Title String |
+| `sensor` | `Player Count` | Number of active player controllers | **Enabled** | `0` – `8` |
+| `button` | `Reboot` | Restarts the Switch console | **Enabled** | Button press |
+| `button` | `Shutdown` | Powers down the Switch console | **Enabled** | Button press |
+| `event` | `Overlay Action` | Events triggered from overlay / shortcuts | **Enabled** | `toggle`, `turn_on`, `turn_off`, `call_service`, etc. |
+| `notify` | `Popup Notification` | In-game notification toast | **Enabled** | Text message / JSON payload |
+| `sensor` | `Current Game Title ID` | Hex Title ID of running game | *Disabled by default* | 16-character hex (e.g. `0100000000010000`) |
+| `sensor` | `Charger Type` | Detected charger power rate (Diagnostic) | *Disabled by default* | `unconnected`, `enough_power`, `low_power`, `not_supported` |
+| `sensor` | `Battery Voltage` | Real-time battery voltage (Diagnostic) | *Disabled by default* | `mV` |
+| `sensor` | `Battery Temperature` | Battery temperature (Diagnostic) | *Disabled by default* | `°C` |
+| `sensor` | `Battery Health` | Battery capacity health percentage (Diagnostic) | *Disabled by default* | `%` |
+| `sensor` | `SoC Temperature` | Internal processor temperature | *Disabled by default* | `°C` |
+| `sensor` | `Uptime` | Console system uptime | *Disabled by default* | `s` |
+| `sensor` | `WiFi Signal Strength` | WiFi RSSI connection strength | *Disabled by default* | `dBm` |
+| `sensor` | `SD Card Free Space` | Available storage space on SD card | *Disabled by default* | `MB` |
+| `sensor` | `RAM Used` | Current system memory usage | *Disabled by default* | `MB` |
+| `sensor` | `Screen Brightness` | Current display brightness level | *Disabled by default* | `%` (0–100) |
+| `binary_sensor` | `Screen` | Screen backlight status | *Disabled by default* | `ON` / `OFF` |
+| `sensor` | `Volume` | System audio volume | *Disabled by default* | `%` (0–100) |
+| `sensor` | `Audio Output Target` | Active audio endpoint | *Disabled by default* | `speaker`, `headphone`, `tv`, `usb`, `bluetooth` |
+| `sensor` | `Player 1–8 Controller` | Controller model per player slot | *Disabled by default* | `handheld`, `joydual`, `joyleft`, `joyright`, `pro`, `gamecube`, `snes`, `n64`, `genesis` |
+| `sensor` | `Screen Stream URL` | RTSP live video stream URL | *Disabled by default* | `rtsp://<switch_ip>:8554/` |
 
-## Remote Control & Media Player Usage
+## Remote Control, Media Player & Game Launching
+
+### Game Launcher & Channel Selection
+All installed games are automatically enumerated by the sysmodule and exposed to Home Assistant:
+- **`media_player` Source List**: Selecting a game in the media player's `source` dropdown immediately requests application launch on the Switch.
+- **`remote` Activity List**: Selecting an activity launches that game.
+- **`select` Entities**:
+  - `select.nintendo_switch_game`: Dropdown of all installed games.
+  - `select.nintendo_switch_2_player_games`: Filtered list for 2+ player games.
+  - `select.nintendo_switch_4_player_games`: Filtered list for 4+ player games.
+  - `select.nintendo_switch_8_player_games`: Filtered list for 8+ player games.
+
+### Customizing Player Counts & Titles
+Switch Assistant includes built-in keyword and title detection for player counts (2p, 4p, 8p+), but you can customize or override them at any time:
+1. **`players.ini` / `players.txt`**: Create `sdmc:/switch/switch-ha/players.ini` or `players.txt`:
+   ```ini
+   0100000000010000=2
+   Super Mario Odyssey=2
+   Mario Kart 8 Deluxe=4
+   Super Smash Bros Ultimate=8
+   ```
+2. **`titles.txt` (3rd column)**: In `sdmc:/switch/switch-ha/titles.txt`:
+   ```text
+   0100000000010000;Super Mario Odyssey;2
+   0100152000022000;Mario Kart 8 Deluxe;4
+   ```
 
 ### Remote Entity Commands
 You can send commands using Home Assistant's `remote.send_command` service:
@@ -102,7 +136,7 @@ data:
 ```
 
 ### Media Player Entity
-The media player entity automatically reflects whether the Switch is actively playing a game (`playing`), on the home menu (`idle`), or asleep (`off`). It displays the current game as the media title and allows direct volume slider control from standard media control cards.
+The media player entity automatically reflects whether the Switch is actively playing a game (`playing`), on the home menu (`idle`), or asleep (`off`). It displays the current game as the media title and allows direct volume slider control as well as source/game switching from standard media control cards.
 
 ## Controlling Home Assistant Devices from an Overlay (UltraHand / Tesla / Shortcuts)
 
