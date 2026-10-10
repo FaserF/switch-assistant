@@ -601,6 +601,24 @@ static void notification_topic(const AppConfig *config, const char *mode, char *
     snprintf(topic, topic_size, "switch_ha/%s/notify/%s", safe_id, mode);
 }
 
+static void remote_send_command_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/remote/send_command", safe_id);
+}
+
+static void remote_set_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/remote/set", safe_id);
+}
+
+static void remote_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/remote/state", safe_id);
+}
+
 static void notification_status_topic(const AppConfig *config, char *topic, size_t topic_size) {
     char safe_id[80];
     sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
@@ -854,6 +872,34 @@ static void publish_discovery_notify(int fd, const AppConfig *config, const char
     mqtt_send_publish(fd, topic, payload, true);
 }
 
+static void publish_discovery_remote(int fd, const AppConfig *config) {
+    char topic[256];
+    char send_cmd_topic[192];
+    char cmd_set_topic[192];
+    char state_top[192];
+    char payload[MQTT_BUFFER];
+    char safe_id[80];
+
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    discovery_topic(config, "remote", "remote", topic, sizeof(topic));
+    remote_send_command_topic(config, send_cmd_topic, sizeof(send_cmd_topic));
+    remote_set_topic(config, cmd_set_topic, sizeof(cmd_set_topic));
+    remote_state_topic(config, state_top, sizeof(state_top));
+
+    snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s Remote\",\"uniq_id\":\"%s_remote\",\"send_cmd_t\":\"%s\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
+             "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
+             config->device_name,
+             safe_id,
+             send_cmd_topic,
+             cmd_set_topic,
+             state_top,
+             safe_id,
+             config->device_name);
+
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
 static void clear_discovery_topic(int fd, const AppConfig *config, const char *component, const char *sensor) {
     char topic[256];
     discovery_topic(config, component, sensor, topic, sizeof(topic));
@@ -896,6 +942,7 @@ static void publish_sensor_discovery(AppState *state, int fd, const AppConfig *c
         publish_discovery_button(fd, config, "reboot", "Reboot", "reboot");
         publish_discovery_button(fd, config, "shutdown", "Shutdown", "shutdown");
     }
+    publish_discovery_remote(fd, config);
     if (state->app_mode == AppMode_Sysmodule) {
         publish_discovery_sensor(fd, config, "sensor", SCREEN_RTSP_URL_SENSOR, "Screen Stream URL", NULL, NULL, NULL);
         clear_discovery_topic(fd, config, "sensor", "screen_stream_status");
@@ -1078,6 +1125,11 @@ static void publish_switch_sensors(AppState *state, int fd, const AppConfig *con
         publish_if_changed(fd, config, snapshot, force, SCREEN_RTSP_URL_SENSOR,
                            snapshot->screen_rtsp_url, sizeof(snapshot->screen_rtsp_url), stream_url);
     }
+    {
+        char remote_topic[192];
+        remote_state_topic(config, remote_topic, sizeof(remote_topic));
+        mqtt_send_publish(fd, remote_topic, power_sleeping ? "OFF" : "ON", true);
+    }
     snapshot->initialized = true;
 }
 
@@ -1113,6 +1165,160 @@ static bool read_mqtt_remaining_length(const unsigned char *buffer, int size, in
     return false;
 }
 
+static void handle_remote_command(AppState *state, int fd, const AppConfig *config, const char *cmd) {
+    if (!cmd || cmd[0] == '\0') {
+        return;
+    }
+    app_state_push_log(state, "Remote command: %s", cmd);
+
+    if (strcasecmp(cmd, "reboot") == 0 || strcasecmp(cmd, "restart") == 0) {
+        if (state->svc_spsm_ready) {
+            app_state_push_log(state, "Remote reboot accepted");
+            spsmShutdown(true);
+        }
+    } else if (strcasecmp(cmd, "shutdown") == 0 || strcasecmp(cmd, "poweroff") == 0 || strcasecmp(cmd, "turn_off") == 0 || strcasecmp(cmd, "off") == 0) {
+        if (state->svc_spsm_ready) {
+            app_state_push_log(state, "Remote shutdown accepted");
+            spsmShutdown(false);
+        }
+    } else if (strcasecmp(cmd, "volume_up") == 0) {
+        if (state->svc_audctl_ready) {
+            AudioTarget audio_target = AudioTarget_Invalid;
+            if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
+                s32 vol = 0, min_v = 0, max_v = 0;
+                if (R_SUCCEEDED(audctlGetTargetVolume(&vol, audio_target)) &&
+                    R_SUCCEEDED(audctlGetTargetVolumeMin(&min_v)) &&
+                    R_SUCCEEDED(audctlGetTargetVolumeMax(&max_v))) {
+                    s32 step = (max_v - min_v) / 20;
+                    if (step < 1) step = 1;
+                    vol += step;
+                    if (vol > max_v) vol = max_v;
+                    audctlSetTargetVolume(audio_target, vol);
+                    mutexLock(&state->lock);
+                    state->sensor_publish_requested = true;
+                    mutexUnlock(&state->lock);
+                }
+            }
+        }
+    } else if (strcasecmp(cmd, "volume_down") == 0) {
+        if (state->svc_audctl_ready) {
+            AudioTarget audio_target = AudioTarget_Invalid;
+            if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
+                s32 vol = 0, min_v = 0, max_v = 0;
+                if (R_SUCCEEDED(audctlGetTargetVolume(&vol, audio_target)) &&
+                    R_SUCCEEDED(audctlGetTargetVolumeMin(&min_v)) &&
+                    R_SUCCEEDED(audctlGetTargetVolumeMax(&max_v))) {
+                    s32 step = (max_v - min_v) / 20;
+                    if (step < 1) step = 1;
+                    vol -= step;
+                    if (vol < min_v) vol = min_v;
+                    audctlSetTargetVolume(audio_target, vol);
+                    mutexLock(&state->lock);
+                    state->sensor_publish_requested = true;
+                    mutexUnlock(&state->lock);
+                }
+            }
+        }
+    } else if (strcasecmp(cmd, "volume_mute") == 0 || strcasecmp(cmd, "mute") == 0) {
+        if (state->svc_audctl_ready) {
+            AudioTarget audio_target = AudioTarget_Invalid;
+            if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
+                s32 min_v = 0;
+                if (R_SUCCEEDED(audctlGetTargetVolumeMin(&min_v))) {
+                    audctlSetTargetVolume(audio_target, min_v);
+                    mutexLock(&state->lock);
+                    state->sensor_publish_requested = true;
+                    mutexUnlock(&state->lock);
+                }
+            }
+        }
+    } else if (strcasecmp(cmd, "brightness_up") == 0) {
+        if (state->svc_lbl_ready) {
+            float b = 0.0f;
+            if (R_SUCCEEDED(lblGetCurrentBrightnessSetting(&b))) {
+                b += 0.10f;
+                if (b > 1.0f) b = 1.0f;
+                lblSetCurrentBrightnessSetting(b);
+                mutexLock(&state->lock);
+                state->sensor_publish_requested = true;
+                mutexUnlock(&state->lock);
+            }
+        }
+    } else if (strcasecmp(cmd, "brightness_down") == 0) {
+        if (state->svc_lbl_ready) {
+            float b = 0.0f;
+            if (R_SUCCEEDED(lblGetCurrentBrightnessSetting(&b))) {
+                b -= 0.10f;
+                if (b < 0.0f) b = 0.0f;
+                lblSetCurrentBrightnessSetting(b);
+                mutexLock(&state->lock);
+                state->sensor_publish_requested = true;
+                mutexUnlock(&state->lock);
+            }
+        }
+    } else if (strcasecmp(cmd, "screen_on") == 0) {
+        if (state->svc_lbl_ready) {
+            lblEnableBacklight();
+            mutexLock(&state->lock);
+            state->sensor_publish_requested = true;
+            mutexUnlock(&state->lock);
+        }
+    } else if (strcasecmp(cmd, "screen_off") == 0) {
+        if (state->svc_lbl_ready) {
+            lblDisableBacklight();
+            mutexLock(&state->lock);
+            state->sensor_publish_requested = true;
+            mutexUnlock(&state->lock);
+        }
+    }
+}
+
+static void handle_remote_send_command_payload(AppState *state, int fd, const AppConfig *config, const char *payload) {
+    if (!payload || payload[0] == '\0') {
+        return;
+    }
+
+    if (payload[0] == '{') {
+        char cmd[64];
+        if (json_extract_string(payload, "command", cmd, sizeof(cmd))) {
+            handle_remote_command(state, fd, config, cmd);
+            return;
+        }
+    }
+
+    const char *ptr = payload;
+    while (*ptr) {
+        while (*ptr == ' ' || *ptr == '\t' || *ptr == '\r' || *ptr == '\n' || *ptr == ',' || *ptr == '"' || *ptr == '[' || *ptr == ']') {
+            ptr++;
+        }
+        if (!*ptr) break;
+        const char *start = ptr;
+        while (*ptr && *ptr != ' ' && *ptr != '\t' && *ptr != '\r' && *ptr != '\n' && *ptr != ',' && *ptr != '"' && *ptr != ']' && *ptr != '[') {
+            ptr++;
+        }
+        size_t len = (size_t)(ptr - start);
+        if (len > 0 && len < 64) {
+            char cmd[64];
+            memcpy(cmd, start, len);
+            cmd[len] = '\0';
+            handle_remote_command(state, fd, config, cmd);
+        }
+    }
+}
+
+static void handle_remote_set_payload(AppState *state, int fd, const AppConfig *config, const char *payload) {
+    if (!payload || payload[0] == '\0') {
+        return;
+    }
+    app_state_push_log(state, "Remote set: %s", payload);
+    if (strcasecmp(payload, "OFF") == 0 || strcasecmp(payload, "false") == 0 || strcasecmp(payload, "0") == 0) {
+        if (state->svc_spsm_ready) {
+            app_state_push_log(state, "Remote set OFF -> shutdown");
+            spsmShutdown(false);
+        }
+    }
+}
+
 static void handle_command_payload(AppState *state, int fd, const AppConfig *config, const char *payload) {
     if (!payload || payload[0] == '\0') {
         return;
@@ -1137,7 +1343,7 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
     } else if (strcasecmp(payload, "sleep") == 0 || strcasecmp(payload, "standby") == 0) {
         app_state_push_log(state, "Sleep command removed: unsupported in sysmodule");
     } else {
-        app_state_push_log(state, "Unknown MQTT command");
+        handle_remote_command(state, fd, config, payload);
     }
 }
 
@@ -1230,13 +1436,21 @@ static void handle_mqtt_publish(AppState *state, int fd, const AppConfig *config
 
     char command_topic[SHA_MAX_TOPIC + 32];
     char popup_topic[192];
+    char send_cmd_topic[192];
+    char cmd_set_topic[192];
     snprintf(command_topic, sizeof(command_topic), "%s/command", config->mqtt_topic_prefix);
     notification_topic(config, "popup", popup_topic, sizeof(popup_topic));
+    remote_send_command_topic(config, send_cmd_topic, sizeof(send_cmd_topic));
+    remote_set_topic(config, cmd_set_topic, sizeof(cmd_set_topic));
 
     if (strcmp(topic, command_topic) == 0) {
         handle_command_payload(state, fd, config, payload);
     } else if (strcmp(topic, popup_topic) == 0) {
         handle_notification_payload(state, fd, config, topic, payload);
+    } else if (strcmp(topic, send_cmd_topic) == 0) {
+        handle_remote_send_command_payload(state, fd, config, payload);
+    } else if (strcmp(topic, cmd_set_topic) == 0) {
+        handle_remote_set_payload(state, fd, config, payload);
     }
 }
 
@@ -1328,8 +1542,14 @@ static void mqtt_loop(void *arg) {
         }
 
         char command_topic[SHA_MAX_TOPIC + 32];
+        char send_cmd_topic[192];
+        char cmd_set_topic[192];
         snprintf(command_topic, sizeof(command_topic), "%s/command", prefix);
+        remote_send_command_topic(&config, send_cmd_topic, sizeof(send_cmd_topic));
+        remote_set_topic(&config, cmd_set_topic, sizeof(cmd_set_topic));
         mqtt_send_subscribe(fd, command_topic);
+        mqtt_send_subscribe(fd, send_cmd_topic);
+        mqtt_send_subscribe(fd, cmd_set_topic);
         if (config.notification_overlay_enabled) {
             char popup_topic[192];
             notification_topic(&config, "popup", popup_topic, sizeof(popup_topic));
