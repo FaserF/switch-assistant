@@ -115,16 +115,25 @@ static void mqtt_loop(void *arg) {
         char cmd_set_topic[192];
         char mp_cmd_topic[192];
         char mp_vol_cmd_topic[192];
+        char mp_src_cmd_topic[192];
+        char rem_act_cmd_topic[192];
+        char sel_game_cmd_topic[192];
         snprintf(command_topic, sizeof(command_topic), "%s/command", prefix);
         mqtt_remote_send_command_topic(&config, send_cmd_topic, sizeof(send_cmd_topic));
         mqtt_remote_set_topic(&config, cmd_set_topic, sizeof(cmd_set_topic));
         mqtt_media_player_command_topic(&config, mp_cmd_topic, sizeof(mp_cmd_topic));
         mqtt_media_player_volume_cmd_topic(&config, mp_vol_cmd_topic, sizeof(mp_vol_cmd_topic));
+        mqtt_media_player_source_cmd_topic(&config, mp_src_cmd_topic, sizeof(mp_src_cmd_topic));
+        mqtt_remote_activity_cmd_topic(&config, rem_act_cmd_topic, sizeof(rem_act_cmd_topic));
+        mqtt_select_game_cmd_topic(&config, sel_game_cmd_topic, sizeof(sel_game_cmd_topic));
         mqtt_send_subscribe(fd, command_topic);
         mqtt_send_subscribe(fd, send_cmd_topic);
         mqtt_send_subscribe(fd, cmd_set_topic);
         mqtt_send_subscribe(fd, mp_cmd_topic);
         mqtt_send_subscribe(fd, mp_vol_cmd_topic);
+        mqtt_send_subscribe(fd, mp_src_cmd_topic);
+        mqtt_send_subscribe(fd, rem_act_cmd_topic);
+        mqtt_send_subscribe(fd, sel_game_cmd_topic);
         if (config.notification_overlay_enabled) {
             char popup_topic[192];
             mqtt_notification_topic(&config, "popup", popup_topic, sizeof(popup_topic));

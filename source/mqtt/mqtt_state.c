@@ -379,16 +379,28 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
     }
     {
         char remote_topic[192];
+        char rem_act_top[192];
         mqtt_remote_state_topic(config, remote_topic, sizeof(remote_topic));
+        mqtt_remote_activity_state_topic(config, rem_act_top, sizeof(rem_act_top));
         mqtt_send_publish(fd, remote_topic, power_sleeping ? "OFF" : "ON", true);
+
+        const char *current_game_name = (strcmp(snapshot->game_running, "ON") == 0 &&
+                                         snapshot->current_game_name[0] != '\0' &&
+                                         strcmp(snapshot->current_game_name, "none") != 0) ?
+                                         snapshot->current_game_name : "None";
+        mqtt_send_publish(fd, rem_act_top, current_game_name, true);
     }
     {
         char mp_state_top[192];
         char mp_vol_top[192];
         char mp_title_top[192];
+        char mp_src_top[192];
+        char sel_game_top[192];
         mqtt_media_player_state_topic(config, mp_state_top, sizeof(mp_state_top));
         mqtt_media_player_volume_state_topic(config, mp_vol_top, sizeof(mp_vol_top));
         mqtt_media_player_title_topic(config, mp_title_top, sizeof(mp_title_top));
+        mqtt_media_player_source_state_topic(config, mp_src_top, sizeof(mp_src_top));
+        mqtt_select_game_state_topic(config, sel_game_top, sizeof(sel_game_top));
 
         const char *mp_state = "off";
         if (!power_sleeping) {
@@ -406,7 +418,14 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         snprintf(vol_payload, sizeof(vol_payload), "%.2f", vol_float);
         mqtt_send_publish(fd, mp_vol_top, vol_payload, true);
 
+        const char *current_game_name = (strcmp(snapshot->game_running, "ON") == 0 &&
+                                         snapshot->current_game_name[0] != '\0' &&
+                                         strcmp(snapshot->current_game_name, "none") != 0) ?
+                                         snapshot->current_game_name : "None";
+
         mqtt_send_publish(fd, mp_title_top, snapshot->current_game_name, true);
+        mqtt_send_publish(fd, mp_src_top, current_game_name, true);
+        mqtt_send_publish(fd, sel_game_top, current_game_name, true);
     }
     {
         char update_top[192];

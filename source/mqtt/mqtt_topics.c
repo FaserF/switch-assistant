@@ -92,6 +92,42 @@ void mqtt_media_player_title_topic(const AppConfig *config, char *topic, size_t 
     snprintf(topic, topic_size, "switch_ha/%s/media_player/title", safe_id);
 }
 
+void mqtt_remote_activity_cmd_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/remote/activity/set", safe_id);
+}
+
+void mqtt_remote_activity_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/remote/activity/state", safe_id);
+}
+
+void mqtt_media_player_source_cmd_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/media_player/source/set", safe_id);
+}
+
+void mqtt_media_player_source_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/media_player/source/state", safe_id);
+}
+
+void mqtt_select_game_cmd_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/select_game/set", safe_id);
+}
+
+void mqtt_select_game_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/select_game/state", safe_id);
+}
+
 void mqtt_update_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
     char safe_id[80];
     mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));

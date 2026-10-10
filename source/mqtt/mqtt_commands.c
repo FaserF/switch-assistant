@@ -192,6 +192,30 @@ static bool write_notification_files(const char *mode, const char *title, const 
     return true;
 }
 
+#include "title_cache.h"
+
+static void handle_launch_game_payload(AppState *state, int fd, const AppConfig *config, const char *payload) {
+    (void) fd;
+    (void) config;
+    if (!payload || payload[0] == '\0') {
+        return;
+    }
+    app_state_push_log(state, "Game launch request: %s", payload);
+
+    if (strcasecmp(payload, "None") == 0 || strcasecmp(payload, "none") == 0 ||
+        strcasecmp(payload, "off") == 0 || strcasecmp(payload, "Home") == 0) {
+        app_state_push_log(state, "Game selection None/off requested");
+        return;
+    }
+
+    u64 app_id = 0;
+    if (title_cache_find_application_id_by_name(payload, &app_id)) {
+        title_cache_launch_game(state, app_id);
+    } else {
+        app_state_push_log(state, "Game not found for: %s", payload);
+    }
+}
+
 static void handle_remote_command(AppState *state, int fd, const AppConfig *config, const char *cmd) {
     (void) fd;
     (void) config;
@@ -299,6 +323,23 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
         }
+    } else if (strncasecmp(cmd, "launch_game ", 12) == 0) {
+        handle_launch_game_payload(state, fd, config, cmd + 12);
+    } else if (strncasecmp(cmd, "launch ", 7) == 0) {
+        handle_launch_game_payload(state, fd, config, cmd + 7);
+    } else if (strncasecmp(cmd, "select_source ", 14) == 0) {
+        handle_launch_game_payload(state, fd, config, cmd + 14);
+    } else if (strncasecmp(cmd, "source ", 7) == 0) {
+        handle_launch_game_payload(state, fd, config, cmd + 7);
+    } else if (strncasecmp(cmd, "channel ", 8) == 0) {
+        handle_launch_game_payload(state, fd, config, cmd + 8);
+    } else if (strncasecmp(cmd, "activity ", 9) == 0) {
+        handle_launch_game_payload(state, fd, config, cmd + 9);
+    } else {
+        u64 app_id = 0;
+        if (title_cache_find_application_id_by_name(cmd, &app_id)) {
+            title_cache_launch_game(state, app_id);
+        }
     }
 }
 
@@ -308,9 +349,13 @@ static void handle_remote_send_command_payload(AppState *state, int fd, const Ap
     }
 
     if (payload[0] == '{') {
-        char cmd[64];
+        char cmd[128];
         if (json_extract_string(payload, "command", cmd, sizeof(cmd))) {
             handle_remote_command(state, fd, config, cmd);
+            return;
+        }
+        if (json_extract_string(payload, "activity", cmd, sizeof(cmd))) {
+            handle_launch_game_payload(state, fd, config, cmd);
             return;
         }
     }
@@ -326,8 +371,8 @@ static void handle_remote_send_command_payload(AppState *state, int fd, const Ap
             ptr++;
         }
         size_t len = (size_t)(ptr - start);
-        if (len > 0 && len < 64) {
-            char cmd[64];
+        if (len > 0 && len < 128) {
+            char cmd[128];
             memcpy(cmd, start, len);
             cmd[len] = '\0';
             handle_remote_command(state, fd, config, cmd);
@@ -358,6 +403,14 @@ static void handle_media_player_cmd(AppState *state, int fd, const AppConfig *co
     if (strcasecmp(payload, "volume_up") == 0 || strcasecmp(payload, "volume_down") == 0 ||
         strcasecmp(payload, "mute") == 0 || strcasecmp(payload, "volume_mute") == 0 ||
         strcasecmp(payload, "turn_off") == 0 || strcasecmp(payload, "off") == 0) {
+        handle_remote_command(state, fd, config, payload);
+    } else if (strncasecmp(payload, "select_source ", 14) == 0) {
+        handle_launch_game_payload(state, fd, config, payload + 14);
+    } else if (strncasecmp(payload, "source ", 7) == 0) {
+        handle_launch_game_payload(state, fd, config, payload + 7);
+    } else if (strncasecmp(payload, "channel ", 8) == 0) {
+        handle_launch_game_payload(state, fd, config, payload + 8);
+    } else {
         handle_remote_command(state, fd, config, payload);
     }
 }
@@ -411,6 +464,12 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         spsmShutdown(false);
     } else if (strcasecmp(payload, "sleep") == 0 || strcasecmp(payload, "standby") == 0) {
         app_state_push_log(state, "Sleep command removed: unsupported in sysmodule");
+    } else if (strncasecmp(payload, "launch_game ", 12) == 0) {
+        handle_launch_game_payload(state, fd, config, payload + 12);
+    } else if (strncasecmp(payload, "launch ", 7) == 0) {
+        handle_launch_game_payload(state, fd, config, payload + 7);
+    } else if (strncasecmp(payload, "select_source ", 14) == 0) {
+        handle_launch_game_payload(state, fd, config, payload + 14);
     } else {
         handle_remote_command(state, fd, config, payload);
     }
@@ -580,12 +639,19 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     char cmd_set_topic[192];
     char mp_cmd_topic[192];
     char mp_vol_cmd_topic[192];
+    char mp_src_cmd_topic[192];
+    char rem_act_cmd_topic[192];
+    char sel_game_cmd_topic[192];
+
     snprintf(command_topic, sizeof(command_topic), "%s/command", config->mqtt_topic_prefix);
     mqtt_notification_topic(config, "popup", popup_topic, sizeof(popup_topic));
     mqtt_remote_send_command_topic(config, send_cmd_topic, sizeof(send_cmd_topic));
     mqtt_remote_set_topic(config, cmd_set_topic, sizeof(cmd_set_topic));
     mqtt_media_player_command_topic(config, mp_cmd_topic, sizeof(mp_cmd_topic));
     mqtt_media_player_volume_cmd_topic(config, mp_vol_cmd_topic, sizeof(mp_vol_cmd_topic));
+    mqtt_media_player_source_cmd_topic(config, mp_src_cmd_topic, sizeof(mp_src_cmd_topic));
+    mqtt_remote_activity_cmd_topic(config, rem_act_cmd_topic, sizeof(rem_act_cmd_topic));
+    mqtt_select_game_cmd_topic(config, sel_game_cmd_topic, sizeof(sel_game_cmd_topic));
 
     if (strcmp(topic, command_topic) == 0) {
         handle_command_payload(state, fd, config, payload);
@@ -599,5 +665,9 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
         handle_media_player_cmd(state, fd, config, payload);
     } else if (strcmp(topic, mp_vol_cmd_topic) == 0) {
         handle_media_player_volume_set(state, fd, config, payload);
+    } else if (strcmp(topic, mp_src_cmd_topic) == 0 ||
+               strcmp(topic, rem_act_cmd_topic) == 0 ||
+               strcmp(topic, sel_game_cmd_topic) == 0) {
+        handle_launch_game_payload(state, fd, config, payload);
     }
 }
