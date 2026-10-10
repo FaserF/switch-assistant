@@ -401,6 +401,28 @@ size_t title_cache_refresh_installed_games(void) {
     return g_installed_game_count;
 }
 
+static void append_json_escaped_string(char *dst, size_t dst_size, size_t *pos, const char *src) {
+    if (*pos + 1 >= dst_size) return;
+    dst[(*pos)++] = '"';
+    for (size_t i = 0; src[i] && *pos + 3 < dst_size; ++i) {
+        char ch = src[i];
+        if (ch == '"') {
+            dst[(*pos)++] = '\\';
+            dst[(*pos)++] = '"';
+        } else if (ch == '\\') {
+            dst[(*pos)++] = '\\';
+            dst[(*pos)++] = '\\';
+        } else if (ch == '\r' || ch == '\n' || ch == '\t') {
+            dst[(*pos)++] = ' ';
+        } else if ((unsigned char)ch >= 0x20) {
+            dst[(*pos)++] = ch;
+        }
+    }
+    if (*pos + 1 < dst_size) {
+        dst[(*pos)++] = '"';
+    }
+}
+
 void title_cache_build_json_options_array_for_players(char *out, size_t out_size, int min_players) {
     if (!out || out_size < 3) {
         if (out && out_size > 0) out[0] = '\0';
@@ -594,60 +616,4 @@ bool title_cache_launch_game(AppState *state, u64 application_id) {
         app_state_push_log(state, "Game launch failed: rc=0x%x", rc);
         return false;
     }
-}
-
-static void append_json_escaped_string(char *dst, size_t dst_size, size_t *pos, const char *src) {
-    if (*pos + 1 >= dst_size) return;
-    dst[(*pos)++] = '"';
-    for (size_t i = 0; src[i] && *pos + 3 < dst_size; ++i) {
-        char ch = src[i];
-        if (ch == '"') {
-            dst[(*pos)++] = '\\';
-            dst[(*pos)++] = '"';
-        } else if (ch == '\\') {
-            dst[(*pos)++] = '\\';
-            dst[(*pos)++] = '\\';
-        } else if (ch == '\r' || ch == '\n' || ch == '\t') {
-            dst[(*pos)++] = ' ';
-        } else if ((unsigned char)ch >= 0x20) {
-            dst[(*pos)++] = ch;
-        }
-    }
-    if (*pos + 1 < dst_size) {
-        dst[(*pos)++] = '"';
-    }
-}
-
-void title_cache_build_json_options_array(char *out, size_t out_size) {
-    if (!out || out_size < 3) {
-        if (out && out_size > 0) out[0] = '\0';
-        return;
-    }
-
-    if (g_installed_game_count == 0) {
-        title_cache_refresh_installed_games();
-    }
-
-    size_t pos = 0;
-    out[pos++] = '[';
-
-    append_json_escaped_string(out, out_size, &pos, "None");
-
-    for (size_t i = 0; i < g_installed_game_count && pos + 4 < out_size; ++i) {
-        if (g_installed_games[i].name[0] == '\0') {
-            continue;
-        }
-        if (pos + 1 < out_size) {
-            out[pos++] = ',';
-        }
-        append_json_escaped_string(out, out_size, &pos, g_installed_games[i].name);
-    }
-
-    if (pos + 1 < out_size) {
-        out[pos++] = ']';
-    } else {
-        out[out_size - 2] = ']';
-        pos = out_size - 1;
-    }
-    out[pos] = '\0';
 }
