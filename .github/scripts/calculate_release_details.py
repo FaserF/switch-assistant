@@ -21,7 +21,9 @@ def run_git(args):
 # Upstream fork baseline: the original repo and the last upstream tag before this fork
 UPSTREAM_REPO = "ErSeraph/switch-assistant"
 UPSTREAM_BASELINE_TAG = "v1.8"
-UPSTREAM_RELEASE_URL = f"https://github.com/{UPSTREAM_REPO}/releases/tag/{UPSTREAM_BASELINE_TAG}"
+UPSTREAM_RELEASE_URL = (
+    f"https://github.com/{UPSTREAM_REPO}/releases/tag/{UPSTREAM_BASELINE_TAG}"
+)
 
 
 def main():
@@ -117,8 +119,7 @@ def main():
     # Filter out upstream-only tags (1.x without patch, e.g. v1.8 — these were X.Y format, not X.Y.Z)
     # Our own releases are X.Y.Z or X.Y.ZbN; upstream tags are X.Y (two parts only)
     own_tags = [
-        t for t in tags
-        if re.match(r"^v?\d+\.\d+\.\d+(?:(?:b|-dev|-nightly)\d+)?$", t)
+        t for t in tags if re.match(r"^v?\d+\.\d+\.\d+(?:(?:b|-dev|-nightly)\d+)?$", t)
     ]
 
     if rtype == "stable":
@@ -202,7 +203,9 @@ def main():
                     os.remove("CHANGELOG_BODY.md")
         except Exception as e:  # noqa: BLE001
             print(f"Error generating changelog: {e}")
-            changelog_md = "_Changelog could not be generated automatically. See commit history._"
+            changelog_md = (
+                "_Changelog could not be generated automatically. See commit history._"
+            )
     else:
         changelog_md = "_Changelog script not found._"
 

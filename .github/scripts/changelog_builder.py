@@ -8,7 +8,7 @@ def get_commits(tag=None):
     try:
         out = subprocess.check_output(cmd, text=True).strip()
         return out.split("\n") if out else []
-    except (subprocess.SubprocessError, OSError):
+    except subprocess.SubprocessError, OSError:
         return []
 
 
@@ -31,9 +31,10 @@ def build_changelog(commits, url, upstream_ref=None, upstream_url=None):
             continue
         sub = re.sub(r"\(#(\d+)\)", rf"([#\1]({url}/pull/\1))", sub)
         entry = f"- {sub} ([{sh}]({url}/commit/{fh}))"
-        if re.match(
-            r"^(feat|add|added|adding|new|feature|i18n|translation|✨)", sl
-        ) or "translation" in sl:
+        if (
+            re.match(r"^(feat|add|added|adding|new|feature|i18n|translation|✨)", sl)
+            or "translation" in sl
+        ):
             cats["✨ Features"].append(entry)
         elif re.match(
             r"^(fix|fixing|fixed|fixes|bug|patch|repair|resolve|resolved|🐛)", sl
@@ -68,10 +69,20 @@ if __name__ == "__main__":
     p.add_argument("--from-tag")
     p.add_argument("--repo-url", required=True)
     p.add_argument("--output", default="CHANGELOG_BODY.md")
-    p.add_argument("--upstream-ref", default=None, help="Upstream fork baseline tag/version (e.g. v1.8)")
-    p.add_argument("--upstream-url", default=None, help="Upstream repo URL for linking to baseline release")
+    p.add_argument(
+        "--upstream-ref",
+        default=None,
+        help="Upstream fork baseline tag/version (e.g. v1.8)",
+    )
+    p.add_argument(
+        "--upstream-url",
+        default=None,
+        help="Upstream repo URL for linking to baseline release",
+    )
     args = p.parse_args()
     commits = get_commits(args.from_tag)
-    changelog = build_changelog(commits, args.repo_url, args.upstream_ref, args.upstream_url)
+    changelog = build_changelog(
+        commits, args.repo_url, args.upstream_ref, args.upstream_url
+    )
     with open(args.output, "w", encoding="utf-8") as f:
         f.write(changelog)
