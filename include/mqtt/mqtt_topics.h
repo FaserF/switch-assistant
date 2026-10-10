@@ -29,6 +29,13 @@ void mqtt_media_player_source_state_topic(const AppConfig *config, char *topic, 
 
 void mqtt_select_game_cmd_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_select_game_state_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_select_game_2p_cmd_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_select_game_2p_state_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_select_game_4p_cmd_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_select_game_4p_state_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_select_game_8p_cmd_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_select_game_8p_state_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_sensor_attr_topic(const AppConfig *config, const char *sensor, char *topic, size_t topic_size);
 
 void mqtt_update_state_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_overlay_event_topic(const AppConfig *config, char *topic, size_t topic_size);

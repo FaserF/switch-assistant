@@ -128,6 +128,48 @@ void mqtt_select_game_state_topic(const AppConfig *config, char *topic, size_t t
     snprintf(topic, topic_size, "switch_ha/%s/select_game/state", safe_id);
 }
 
+void mqtt_select_game_2p_cmd_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/select_game_2p/set", safe_id);
+}
+
+void mqtt_select_game_2p_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/select_game_2p/state", safe_id);
+}
+
+void mqtt_select_game_4p_cmd_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/select_game_4p/set", safe_id);
+}
+
+void mqtt_select_game_4p_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/select_game_4p/state", safe_id);
+}
+
+void mqtt_select_game_8p_cmd_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/select_game_8p/set", safe_id);
+}
+
+void mqtt_select_game_8p_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/select_game_8p/state", safe_id);
+}
+
+void mqtt_sensor_attr_topic(const AppConfig *config, const char *sensor, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/sensor/%s/attributes", safe_id, sensor);
+}
+
 void mqtt_update_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
     char safe_id[80];
     mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));

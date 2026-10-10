@@ -252,6 +252,83 @@ static void publish_discovery_select_game(int fd, const AppConfig *config) {
     free(payload);
 }
 
+static void publish_discovery_select_game_players(int fd, const AppConfig *config, const char *sensor, const char *name, int min_players, const char *icon) {
+    char topic[256];
+    char cmd_topic[192];
+    char stat_topic[192];
+    char safe_id[80];
+
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    mqtt_discovery_topic(config, "select", sensor, topic, sizeof(topic));
+
+    if (min_players == 2) {
+        mqtt_select_game_2p_cmd_topic(config, cmd_topic, sizeof(cmd_topic));
+        mqtt_select_game_2p_state_topic(config, stat_topic, sizeof(stat_topic));
+    } else if (min_players == 4) {
+        mqtt_select_game_4p_cmd_topic(config, cmd_topic, sizeof(cmd_topic));
+        mqtt_select_game_4p_state_topic(config, stat_topic, sizeof(stat_topic));
+    } else {
+        mqtt_select_game_8p_cmd_topic(config, cmd_topic, sizeof(cmd_topic));
+        mqtt_select_game_8p_state_topic(config, stat_topic, sizeof(stat_topic));
+    }
+
+    char options_json[16384];
+    title_cache_build_json_options_array_for_players(options_json, sizeof(options_json), min_players);
+
+    size_t payload_size = sizeof(options_json) + 1024;
+    char *payload = malloc(payload_size);
+    if (!payload) {
+        return;
+    }
+
+    snprintf(payload, payload_size,
+             "{\"name\":\"%s %s\",\"uniq_id\":\"%s_select_%s\","
+             "\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
+             "\"options\":%s,"
+             "\"ic\":\"%s\","
+             "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
+             config->device_name,
+             name,
+             safe_id,
+             sensor,
+             cmd_topic,
+             stat_topic,
+             options_json,
+             icon,
+             safe_id,
+             config->device_name);
+
+    mqtt_send_publish(fd, topic, payload, true);
+    free(payload);
+}
+
+static void publish_discovery_sensor_games_count(int fd, const AppConfig *config, const char *sensor, const char *name, const char *icon) {
+    char topic[256];
+    char state[192];
+    char attr_topic[192];
+    char payload[MQTT_BUFFER];
+    char safe_id[80];
+
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    mqtt_discovery_topic(config, "sensor", sensor, topic, sizeof(topic));
+    mqtt_state_topic(config, sensor, state, sizeof(state));
+    mqtt_sensor_attr_topic(config, sensor, attr_topic, sizeof(attr_topic));
+
+    snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s %s\",\"uniq_id\":\"%s_%s\",\"stat_t\":\"%s\",\"json_attr_t\":\"%s\",\"ic\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
+             config->device_name,
+             name,
+             safe_id,
+             sensor,
+             state,
+             attr_topic,
+             icon,
+             safe_id,
+             config->device_name);
+
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
 static void publish_discovery_update(int fd, const AppConfig *config) {
     char topic[256];
     char state_top[192];
@@ -346,6 +423,12 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     publish_discovery_remote(fd, config);
     publish_discovery_media_player(fd, config);
     publish_discovery_select_game(fd, config);
+    publish_discovery_select_game_players(fd, config, "game_2p", "2-Player Games", 2, "mdi:account-multiple");
+    publish_discovery_select_game_players(fd, config, "game_4p", "4-Player Games", 4, "mdi:account-group");
+    publish_discovery_select_game_players(fd, config, "game_8p", "8+ Player Games", 8, "mdi:account-group-outline");
+    publish_discovery_sensor_games_count(fd, config, "games_2p", "2-Player Games", "mdi:account-multiple");
+    publish_discovery_sensor_games_count(fd, config, "games_4p", "4-Player Games", "mdi:account-group");
+    publish_discovery_sensor_games_count(fd, config, "games_8p", "8+ Player Games", "mdi:account-group-outline");
     publish_discovery_update(fd, config);
     publish_discovery_event(fd, config);
     publish_discovery_sensor(fd, config, "binary_sensor", "docked", "Docked", "plug", NULL, NULL);

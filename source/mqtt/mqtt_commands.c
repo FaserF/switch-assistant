@@ -642,6 +642,9 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     char mp_src_cmd_topic[192];
     char rem_act_cmd_topic[192];
     char sel_game_cmd_topic[192];
+    char sel_game_2p_cmd_topic[192];
+    char sel_game_4p_cmd_topic[192];
+    char sel_game_8p_cmd_topic[192];
 
     snprintf(command_topic, sizeof(command_topic), "%s/command", config->mqtt_topic_prefix);
     mqtt_notification_topic(config, "popup", popup_topic, sizeof(popup_topic));
@@ -652,6 +655,9 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     mqtt_media_player_source_cmd_topic(config, mp_src_cmd_topic, sizeof(mp_src_cmd_topic));
     mqtt_remote_activity_cmd_topic(config, rem_act_cmd_topic, sizeof(rem_act_cmd_topic));
     mqtt_select_game_cmd_topic(config, sel_game_cmd_topic, sizeof(sel_game_cmd_topic));
+    mqtt_select_game_2p_cmd_topic(config, sel_game_2p_cmd_topic, sizeof(sel_game_2p_cmd_topic));
+    mqtt_select_game_4p_cmd_topic(config, sel_game_4p_cmd_topic, sizeof(sel_game_4p_cmd_topic));
+    mqtt_select_game_8p_cmd_topic(config, sel_game_8p_cmd_topic, sizeof(sel_game_8p_cmd_topic));
 
     if (strcmp(topic, command_topic) == 0) {
         handle_command_payload(state, fd, config, payload);
@@ -667,7 +673,10 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
         handle_media_player_volume_set(state, fd, config, payload);
     } else if (strcmp(topic, mp_src_cmd_topic) == 0 ||
                strcmp(topic, rem_act_cmd_topic) == 0 ||
-               strcmp(topic, sel_game_cmd_topic) == 0) {
+               strcmp(topic, sel_game_cmd_topic) == 0 ||
+               strcmp(topic, sel_game_2p_cmd_topic) == 0 ||
+               strcmp(topic, sel_game_4p_cmd_topic) == 0 ||
+               strcmp(topic, sel_game_8p_cmd_topic) == 0) {
         handle_launch_game_payload(state, fd, config, payload);
     }
 }
