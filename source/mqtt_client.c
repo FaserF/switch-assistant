@@ -619,6 +619,36 @@ static void remote_state_topic(const AppConfig *config, char *topic, size_t topi
     snprintf(topic, topic_size, "switch_ha/%s/remote/state", safe_id);
 }
 
+static void media_player_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/media_player/state", safe_id);
+}
+
+static void media_player_command_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/media_player/cmd", safe_id);
+}
+
+static void media_player_volume_cmd_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/media_player/volume/set", safe_id);
+}
+
+static void media_player_volume_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/media_player/volume/state", safe_id);
+}
+
+static void media_player_title_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/media_player/title", safe_id);
+}
+
 static void notification_status_topic(const AppConfig *config, char *topic, size_t topic_size) {
     char safe_id[80];
     sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
@@ -900,6 +930,39 @@ static void publish_discovery_remote(int fd, const AppConfig *config) {
     mqtt_send_publish(fd, topic, payload, true);
 }
 
+static void publish_discovery_media_player(int fd, const AppConfig *config) {
+    char topic[256];
+    char cmd_topic[192];
+    char stat_topic[192];
+    char vol_cmd_top[192];
+    char vol_stat_top[192];
+    char payload[MQTT_BUFFER];
+    char safe_id[80];
+
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    discovery_topic(config, "media_player", "media_player", topic, sizeof(topic));
+    media_player_command_topic(config, cmd_topic, sizeof(cmd_topic));
+    media_player_state_topic(config, stat_topic, sizeof(stat_topic));
+    media_player_volume_cmd_topic(config, vol_cmd_top, sizeof(vol_cmd_top));
+    media_player_volume_state_topic(config, vol_stat_top, sizeof(vol_stat_top));
+
+    snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s MediaPlayer\",\"uniq_id\":\"%s_media_player\","
+             "\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
+             "\"vol_cmd_t\":\"%s\",\"vol_stat_t\":\"%s\","
+             "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
+             config->device_name,
+             safe_id,
+             cmd_topic,
+             stat_topic,
+             vol_cmd_top,
+             vol_stat_top,
+             safe_id,
+             config->device_name);
+
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
 static void clear_discovery_topic(int fd, const AppConfig *config, const char *component, const char *sensor) {
     char topic[256];
     discovery_topic(config, component, sensor, topic, sizeof(topic));
@@ -943,6 +1006,7 @@ static void publish_sensor_discovery(AppState *state, int fd, const AppConfig *c
         publish_discovery_button(fd, config, "shutdown", "Shutdown", "shutdown");
     }
     publish_discovery_remote(fd, config);
+    publish_discovery_media_player(fd, config);
     if (state->app_mode == AppMode_Sysmodule) {
         publish_discovery_sensor(fd, config, "sensor", SCREEN_RTSP_URL_SENSOR, "Screen Stream URL", NULL, NULL, NULL);
         clear_discovery_topic(fd, config, "sensor", "screen_stream_status");
@@ -1129,6 +1193,32 @@ static void publish_switch_sensors(AppState *state, int fd, const AppConfig *con
         char remote_topic[192];
         remote_state_topic(config, remote_topic, sizeof(remote_topic));
         mqtt_send_publish(fd, remote_topic, power_sleeping ? "OFF" : "ON", true);
+    }
+    {
+        char mp_state_top[192];
+        char mp_vol_top[192];
+        char mp_title_top[192];
+        media_player_state_topic(config, mp_state_top, sizeof(mp_state_top));
+        media_player_volume_state_topic(config, mp_vol_top, sizeof(mp_vol_top));
+        media_player_title_topic(config, mp_title_top, sizeof(mp_title_top));
+
+        const char *mp_state = "off";
+        if (!power_sleeping) {
+            mp_state = (strcmp(snapshot->game_running, "ON") == 0) ? "playing" : "idle";
+        }
+        mqtt_send_publish(fd, mp_state_top, mp_state, true);
+
+        double vol_float = 0.5;
+        if (snapshot->volume[0] != '\0') {
+            vol_float = atof(snapshot->volume) / 100.0;
+            if (vol_float < 0.0) vol_float = 0.0;
+            if (vol_float > 1.0) vol_float = 1.0;
+        }
+        char vol_payload[16];
+        snprintf(vol_payload, sizeof(vol_payload), "%.2f", vol_float);
+        mqtt_send_publish(fd, mp_vol_top, vol_payload, true);
+
+        mqtt_send_publish(fd, mp_title_top, snapshot->current_game_name, true);
     }
     snapshot->initialized = true;
 }
@@ -1319,6 +1409,42 @@ static void handle_remote_set_payload(AppState *state, int fd, const AppConfig *
     }
 }
 
+static void handle_media_player_cmd(AppState *state, int fd, const AppConfig *config, const char *payload) {
+    if (!payload || payload[0] == '\0') {
+        return;
+    }
+    app_state_push_log(state, "Media player cmd: %s", payload);
+    if (strcasecmp(payload, "volume_up") == 0 || strcasecmp(payload, "volume_down") == 0 ||
+        strcasecmp(payload, "mute") == 0 || strcasecmp(payload, "volume_mute") == 0 ||
+        strcasecmp(payload, "turn_off") == 0 || strcasecmp(payload, "off") == 0) {
+        handle_remote_command(state, fd, config, payload);
+    }
+}
+
+static void handle_media_player_volume_set(AppState *state, int fd, const AppConfig *config, const char *payload) {
+    if (!payload || payload[0] == '\0') {
+        return;
+    }
+    double frac = atof(payload);
+    if (frac < 0.0) frac = 0.0;
+    if (frac > 1.0) frac = 1.0;
+    if (state->svc_audctl_ready) {
+        AudioTarget audio_target = AudioTarget_Invalid;
+        if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
+            s32 min_v = 0, max_v = 0;
+            if (R_SUCCEEDED(audctlGetTargetVolumeMin(&min_v)) && R_SUCCEEDED(audctlGetTargetVolumeMax(&max_v)) && max_v > min_v) {
+                s32 vol = min_v + (s32)(frac * (double)(max_v - min_v));
+                if (vol < min_v) vol = min_v;
+                if (vol > max_v) vol = max_v;
+                audctlSetTargetVolume(audio_target, vol);
+                mutexLock(&state->lock);
+                state->sensor_publish_requested = true;
+                mutexUnlock(&state->lock);
+            }
+        }
+    }
+}
+
 static void handle_command_payload(AppState *state, int fd, const AppConfig *config, const char *payload) {
     if (!payload || payload[0] == '\0') {
         return;
@@ -1438,10 +1564,14 @@ static void handle_mqtt_publish(AppState *state, int fd, const AppConfig *config
     char popup_topic[192];
     char send_cmd_topic[192];
     char cmd_set_topic[192];
+    char mp_cmd_topic[192];
+    char mp_vol_cmd_topic[192];
     snprintf(command_topic, sizeof(command_topic), "%s/command", config->mqtt_topic_prefix);
     notification_topic(config, "popup", popup_topic, sizeof(popup_topic));
     remote_send_command_topic(config, send_cmd_topic, sizeof(send_cmd_topic));
     remote_set_topic(config, cmd_set_topic, sizeof(cmd_set_topic));
+    media_player_command_topic(config, mp_cmd_topic, sizeof(mp_cmd_topic));
+    media_player_volume_cmd_topic(config, mp_vol_cmd_topic, sizeof(mp_vol_cmd_topic));
 
     if (strcmp(topic, command_topic) == 0) {
         handle_command_payload(state, fd, config, payload);
@@ -1451,6 +1581,10 @@ static void handle_mqtt_publish(AppState *state, int fd, const AppConfig *config
         handle_remote_send_command_payload(state, fd, config, payload);
     } else if (strcmp(topic, cmd_set_topic) == 0) {
         handle_remote_set_payload(state, fd, config, payload);
+    } else if (strcmp(topic, mp_cmd_topic) == 0) {
+        handle_media_player_cmd(state, fd, config, payload);
+    } else if (strcmp(topic, mp_vol_cmd_topic) == 0) {
+        handle_media_player_volume_set(state, fd, config, payload);
     }
 }
 
@@ -1544,12 +1678,18 @@ static void mqtt_loop(void *arg) {
         char command_topic[SHA_MAX_TOPIC + 32];
         char send_cmd_topic[192];
         char cmd_set_topic[192];
+        char mp_cmd_topic[192];
+        char mp_vol_cmd_topic[192];
         snprintf(command_topic, sizeof(command_topic), "%s/command", prefix);
         remote_send_command_topic(&config, send_cmd_topic, sizeof(send_cmd_topic));
         remote_set_topic(&config, cmd_set_topic, sizeof(cmd_set_topic));
+        media_player_command_topic(&config, mp_cmd_topic, sizeof(mp_cmd_topic));
+        media_player_volume_cmd_topic(&config, mp_vol_cmd_topic, sizeof(mp_vol_cmd_topic));
         mqtt_send_subscribe(fd, command_topic);
         mqtt_send_subscribe(fd, send_cmd_topic);
         mqtt_send_subscribe(fd, cmd_set_topic);
+        mqtt_send_subscribe(fd, mp_cmd_topic);
+        mqtt_send_subscribe(fd, mp_vol_cmd_topic);
         if (config.notification_overlay_enabled) {
             char popup_topic[192];
             notification_topic(&config, "popup", popup_topic, sizeof(popup_topic));
