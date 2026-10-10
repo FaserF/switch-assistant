@@ -23,6 +23,8 @@ static Result g_lbl_init_result = RESULT_NOT_INITIALIZED;
 static Result g_audctl_init_result = RESULT_NOT_INITIALIZED;
 static Result g_pminfo_init_result = RESULT_NOT_INITIALIZED;
 static Result g_setsys_init_result = RESULT_NOT_INITIALIZED;
+static Result g_ts_init_result = RESULT_NOT_INITIALIZED;
+static Result g_nifm_init_result = RESULT_NOT_INITIALIZED;
 static Thread g_power_guard_thread = {0};
 static bool g_power_guard_thread_active = false;
 
@@ -58,6 +60,8 @@ void __appExit(void) {
         threadClose(&g_power_guard_thread);
         g_power_guard_thread_active = false;
     }
+    if (R_SUCCEEDED(g_nifm_init_result)) nifmExit();
+    if (R_SUCCEEDED(g_ts_init_result)) tsExit();
     if (R_SUCCEEDED(g_setsys_init_result)) setsysExit();
     if (R_SUCCEEDED(g_pminfo_init_result)) pminfoExit();
     if (R_SUCCEEDED(g_audctl_init_result)) audctlExit();
@@ -189,6 +193,8 @@ typedef enum {
     OptionalService_Audctl,
     OptionalService_Pminfo,
     OptionalService_Setsys,
+    OptionalService_Ts,
+    OptionalService_Nifm,
 } OptionalService;
 
 typedef struct {
@@ -216,6 +222,12 @@ static void optional_init_thread(void *arg) {
                 break;
             case OptionalService_Setsys:
                 rc = setsysInitialize();
+                break;
+            case OptionalService_Ts:
+                rc = tsInitialize();
+                break;
+            case OptionalService_Nifm:
+                rc = nifmInitialize(NifmServiceType_System);
                 break;
         }
         smExit();
@@ -295,6 +307,14 @@ static void init_optional_services(AppState *state) {
     state->svc_setsys_ready = R_SUCCEEDED(g_setsys_init_result);
     append_log_result("setsys_init", g_setsys_init_result);
 
+    g_ts_init_result = init_service_with_timeout("ts", OptionalService_Ts);
+    state->svc_ts_ready = R_SUCCEEDED(g_ts_init_result);
+    append_log_result("ts_init", g_ts_init_result);
+
+    g_nifm_init_result = init_service_with_timeout("nifm", OptionalService_Nifm);
+    state->svc_nifm_ready = R_SUCCEEDED(g_nifm_init_result);
+    append_log_result("nifm_init", g_nifm_init_result);
+
     append_log("optional service init done");
 }
 
@@ -332,6 +352,8 @@ static void write_heartbeat(AppState *state) {
     fprintf(file, "audctl_init=0x%x\n", g_audctl_init_result);
     fprintf(file, "pminfo_init=0x%x\n", g_pminfo_init_result);
     fprintf(file, "setsys_init=0x%x\n", g_setsys_init_result);
+    fprintf(file, "ts_init=0x%x\n", g_ts_init_result);
+    fprintf(file, "nifm_init=0x%x\n", g_nifm_init_result);
     mutexUnlock(&state->lock);
 
     fclose(file);

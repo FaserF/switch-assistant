@@ -2,6 +2,12 @@
 #include "screen_stream.h"
 #include "title_cache.h"
 
+#include <switch.h>
+#include <switch/services/applet.h>
+#include <switch/services/ts.h>
+#include <switch/services/nifm.h>
+#include <switch/services/fs.h>
+
 #include <errno.h>
 #include <poll.h>
 #include <stdio.h>
@@ -44,6 +50,12 @@ typedef struct {
     char screen_rtsp_url[128];
     char player_controller_count[16];
     char player_controller[MAX_PLAYERS][32];
+    char docked[8];
+    char soc_temperature[16];
+    char uptime[24];
+    char wifi_rssi[16];
+    char sd_free[16];
+    char memory_used[16];
 } SensorSnapshot;
 
 typedef struct {
@@ -1039,6 +1051,16 @@ static void publish_sensor_discovery(AppState *state, int fd, const AppConfig *c
     publish_discovery_remote(fd, config);
     publish_discovery_media_player(fd, config);
     publish_discovery_update(fd, config);
+    publish_discovery_sensor(fd, config, "binary_sensor", "docked", "Docked", "plug", NULL, NULL);
+    if (state->svc_ts_ready) {
+        publish_discovery_sensor(fd, config, "sensor", "soc_temperature", "SoC Temperature", "temperature", "C", "measurement");
+    }
+    publish_discovery_sensor(fd, config, "sensor", "uptime", "Uptime", "duration", "s", "total_increasing");
+    if (state->svc_nifm_ready) {
+        publish_discovery_sensor(fd, config, "sensor", "wifi_rssi", "WiFi Signal Strength", "signal_strength", "dBm", "measurement");
+    }
+    publish_discovery_sensor(fd, config, "sensor", "sd_free", "SD Card Free Space", "data_size", "MB", "measurement");
+    publish_discovery_sensor(fd, config, "sensor", "memory_used", "RAM Used", "data_size", "MB", "measurement");
     if (state->app_mode == AppMode_Sysmodule) {
         publish_discovery_sensor(fd, config, "sensor", SCREEN_RTSP_URL_SENSOR, "Screen Stream URL", NULL, NULL, NULL);
         clear_discovery_topic(fd, config, "sensor", "screen_stream_status");
@@ -1273,6 +1295,49 @@ static void publish_switch_sensors(AppState *state, int fd, const AppConfig *con
                  "{\"installed_version\":\"%s\",\"latest_version\":\"%s\",\"title\":\"Nintendo Switch Firmware\",\"release_url\":\"https://github.com/THZoria/NX_Firmware/releases\"}",
                  fw_ver, fw_ver);
         mqtt_send_publish(fd, update_top, update_payload, true);
+    }
+    {
+        AppletOperationMode op_mode = appletGetOperationMode();
+        bool is_docked = (op_mode != AppletOperationMode_Handheld);
+        publish_if_changed(fd, config, snapshot, force, "docked", snapshot->docked, sizeof(snapshot->docked),
+                           is_docked ? "ON" : "OFF");
+    }
+    if (state->svc_ts_ready) {
+        s32 soc_temp = 0;
+        if (R_SUCCEEDED(tsGetTemperature(TsLocation_Internal, &soc_temp))) {
+            snprintf(value, sizeof(value), "%.1f", (double) soc_temp / 1000.0);
+            publish_if_changed(fd, config, snapshot, force, "soc_temperature", snapshot->soc_temperature, sizeof(snapshot->soc_temperature), value);
+        }
+    }
+    {
+        u64 uptime_s = armTicksToNs(armGetSystemTick()) / 1000000000ULL;
+        snprintf(value, sizeof(value), "%llu", (unsigned long long) uptime_s);
+        publish_if_changed(fd, config, snapshot, force, "uptime", snapshot->uptime, sizeof(snapshot->uptime), value);
+    }
+    if (state->svc_nifm_ready) {
+        u32 rssi = 0;
+        if (R_SUCCEEDED(nifmGetInternetConnectionStatus(NULL, &rssi, NULL))) {
+            snprintf(value, sizeof(value), "%u", rssi);
+            publish_if_changed(fd, config, snapshot, force, "wifi_rssi", snapshot->wifi_rssi, sizeof(snapshot->wifi_rssi), value);
+        }
+    }
+    {
+        FsFileSystem sd_fs;
+        if (R_SUCCEEDED(fsOpenSdCardFileSystem(&sd_fs))) {
+            s64 sd_free_bytes = 0;
+            if (R_SUCCEEDED(fsFsGetFreeSpace(&sd_fs, "/", &sd_free_bytes))) {
+                snprintf(value, sizeof(value), "%lld", (long long) (sd_free_bytes / (1024 * 1024)));
+                publish_if_changed(fd, config, snapshot, force, "sd_free", snapshot->sd_free, sizeof(snapshot->sd_free), value);
+            }
+            fsFsClose(&sd_fs);
+        }
+    }
+    {
+        u64 used_mem = 0;
+        if (R_SUCCEEDED(svcGetInfo(&used_mem, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0))) {
+            snprintf(value, sizeof(value), "%llu", (unsigned long long) (used_mem / (1024 * 1024)));
+            publish_if_changed(fd, config, snapshot, force, "memory_used", snapshot->memory_used, sizeof(snapshot->memory_used), value);
+        }
     }
     snapshot->initialized = true;
 }
