@@ -29,11 +29,13 @@ def validate_main_json(filepath):
         print("ERROR: No syscalls found in kernel_capabilities!")
         sys.exit(1)
 
-    # Check for crucial modern syscalls (e.g. svcCreateEvent, svcMapPhysicalMemoryUnsafe, etc.)
-    # At least svcCreateEvent (0x45) should be mapped for modern networking threading
+    # Check for crucial syscalls needed by sysmodule
     crucial_syscalls = [
+        "svcCreateThread",
+        "svcSleepThread",
+        "svcGetInfo",
         "svcCreateEvent",
-        "svcCallSecureMonitor",  # 0x7f, used as an upper bound check to ensure they copied the full list
+        "svcGetProcessList",
     ]
 
     missing = []
@@ -42,10 +44,7 @@ def validate_main_json(filepath):
             missing.append(syscall)
 
     if missing:
-        print(f"ERROR: Sysmodule is missing critical modern syscalls: {missing}")
-        print(
-            "Please ensure the kernel_capabilities syscalls mapping includes all up to 0x7F."
-        )
+        print(f"ERROR: Sysmodule is missing critical syscalls: {missing}")
         sys.exit(1)
 
     # Check for correct optimization patches
