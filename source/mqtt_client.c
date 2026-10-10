@@ -1523,14 +1523,14 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
         }
     } else if (strcasecmp(cmd, "screen_on") == 0) {
         if (state->svc_lbl_ready) {
-            lblEnableBacklight();
+            lblSwitchBacklightOn(0);
             mutexLock(&state->lock);
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
         }
     } else if (strcasecmp(cmd, "screen_off") == 0) {
         if (state->svc_lbl_ready) {
-            lblDisableBacklight();
+            lblSwitchBacklightOff(0);
             mutexLock(&state->lock);
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
