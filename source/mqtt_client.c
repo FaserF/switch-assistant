@@ -843,8 +843,9 @@ static void discovery_topic(const AppConfig *config, const char *component, cons
     snprintf(topic, topic_size, "%s/%s/%s/%s/config", config->mqtt_topic_prefix, component, safe_id, sensor);
 }
 
-static void publish_discovery_sensor(int fd, const AppConfig *config, const char *component, const char *sensor,
-                                     const char *name, const char *device_class, const char *unit, const char *state_class) {
+static void publish_discovery_sensor_ext(int fd, const AppConfig *config, const char *component, const char *sensor,
+                                         const char *name, const char *device_class, const char *unit, const char *state_class,
+                                         const char *entity_category, const char *icon) {
     char topic[256];
     char state[192];
     char payload[MQTT_BUFFER];
@@ -855,7 +856,7 @@ static void publish_discovery_sensor(int fd, const AppConfig *config, const char
     state_topic(config, sensor, state, sizeof(state));
 
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"%s\",\"uniq_id\":\"%s_%s\",\"stat_t\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}%s%s%s%s}",
+             "{\"name\":\"%s\",\"uniq_id\":\"%s_%s\",\"stat_t\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}%s%s%s}",
              name,
              safe_id,
              sensor,
@@ -864,8 +865,7 @@ static void publish_discovery_sensor(int fd, const AppConfig *config, const char
              config->device_name,
              device_class ? ",\"dev_cla\":\"" : "",
              device_class ? device_class : "",
-             device_class ? "\"" : "",
-             unit ? "" : "");
+             device_class ? "\"" : "");
 
     if (unit) {
         size_t len = strlen(payload);
@@ -881,8 +881,27 @@ static void publish_discovery_sensor(int fd, const AppConfig *config, const char
             snprintf(payload + strlen(payload), sizeof(payload) - strlen(payload), ",\"stat_cla\":\"%s\"}", state_class);
         }
     }
+    if (entity_category) {
+        size_t len = strlen(payload);
+        if (len > 0 && payload[len - 1] == '}') {
+            payload[len - 1] = '\0';
+            snprintf(payload + strlen(payload), sizeof(payload) - strlen(payload), ",\"ent_cat\":\"%s\"}", entity_category);
+        }
+    }
+    if (icon) {
+        size_t len = strlen(payload);
+        if (len > 0 && payload[len - 1] == '}') {
+            payload[len - 1] = '\0';
+            snprintf(payload + strlen(payload), sizeof(payload) - strlen(payload), ",\"ic\":\"%s\"}", icon);
+        }
+    }
 
     mqtt_send_publish(fd, topic, payload, true);
+}
+
+static void publish_discovery_sensor(int fd, const AppConfig *config, const char *component, const char *sensor,
+                                     const char *name, const char *device_class, const char *unit, const char *state_class) {
+    publish_discovery_sensor_ext(fd, config, component, sensor, name, device_class, unit, state_class, NULL, NULL);
 }
 
 static void publish_discovery_button(int fd, const AppConfig *config, const char *button, const char *name, const char *payload_press) {
@@ -1049,12 +1068,13 @@ static void clear_discovery_topic(int fd, const AppConfig *config, const char *c
 
 static void publish_sensor_discovery(AppState *state, int fd, const AppConfig *config) {
 
-    publish_discovery_sensor(fd, config, "sensor", "battery", "Battery Level", "battery", "%", "measurement");
-    publish_discovery_sensor(fd, config, "binary_sensor", "charging", "Is Charging", "battery_charging", NULL, NULL);
-    publish_discovery_sensor(fd, config, "sensor", "charger_type", "Charger Type", NULL, NULL, NULL);
-    publish_discovery_sensor(fd, config, "sensor", "battery_voltage", "Battery Voltage", "voltage", "mV", "measurement");
-    publish_discovery_sensor(fd, config, "sensor", "battery_temperature", "Battery Temperature", "temperature", "C", "measurement");
-    publish_discovery_sensor(fd, config, "sensor", "battery_health", "Battery Health", NULL, "%", "measurement");
+    // Home Assistant Battery Integration
+    publish_discovery_sensor_ext(fd, config, "sensor", "battery", "Battery", "battery", "%", "measurement", NULL, NULL);
+    publish_discovery_sensor_ext(fd, config, "binary_sensor", "charging", "Battery Charging", "battery_charging", NULL, NULL, NULL, NULL);
+    publish_discovery_sensor_ext(fd, config, "sensor", "charger_type", "Charger Type", NULL, NULL, NULL, "diagnostic", "mdi:power-plug");
+    publish_discovery_sensor_ext(fd, config, "sensor", "battery_voltage", "Battery Voltage", "voltage", "mV", "measurement", "diagnostic", "mdi:sine-wave");
+    publish_discovery_sensor_ext(fd, config, "sensor", "battery_temperature", "Battery Temperature", "temperature", "C", "measurement", "diagnostic", "mdi:thermometer");
+    publish_discovery_sensor_ext(fd, config, "sensor", "battery_health", "Battery Health", NULL, "%", "measurement", "diagnostic", "mdi:battery-heart-variant");
 
     if (state->svc_lbl_ready) {
         publish_discovery_sensor(fd, config, "sensor", "brightness", "Screen Brightness", NULL, "%", "measurement");

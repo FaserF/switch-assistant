@@ -52,13 +52,13 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 | `remote` | `Remote` | TV-style remote control | Power on/off, sleep/wake, volume, brightness, reboot, shutdown |
 | `media_player` | `MediaPlayer` | Media player controller | State (`playing`, `idle`, `off`), volume slider, current game title |
 | `update` | `Firmware` | Firmware update tracker | Current installed FW version, release URL ([THZoria/NX_Firmware](https://github.com/THZoria/NX_Firmware/releases)) |
-| `sensor` | `Battery Level` | Battery charge percentage | `%` (0–100) |
-| `binary_sensor` | `Is Charging` | Battery charger connection | `ON` / `OFF` |
+| `sensor` | `Battery` | Device battery percentage (HA Battery integration) | `%` (0–100, `device_class: battery`) |
+| `binary_sensor` | `Battery Charging` | Charger connected / charging status | `ON` / `OFF` (`device_class: battery_charging`) |
 | `binary_sensor` | `Docked` | Console dock status | `ON` / `OFF` |
-| `sensor` | `Charger Type` | Detected charger power rate | `unconnected`, `enough_power`, `low_power`, `not_supported` |
-| `sensor` | `Battery Voltage` | Real-time battery voltage | `mV` |
-| `sensor` | `Battery Temperature` | Battery temperature | `°C` |
-| `sensor` | `Battery Health` | Battery capacity health percentage | `%` |
+| `sensor` | `Charger Type` | Detected charger power rate (Diagnostic) | `unconnected`, `enough_power`, `low_power`, `not_supported` |
+| `sensor` | `Battery Voltage` | Real-time battery voltage (Diagnostic) | `mV` |
+| `sensor` | `Battery Temperature` | Battery temperature (Diagnostic) | `°C` |
+| `sensor` | `Battery Health` | Battery capacity health percentage (Diagnostic) | `%` |
 | `sensor` | `SoC Temperature` | Internal processor temperature | `°C` |
 | `sensor` | `Uptime` | Console system uptime | `s` |
 | `sensor` | `WiFi Signal Strength` | WiFi RSSI connection strength | `dBm` |
