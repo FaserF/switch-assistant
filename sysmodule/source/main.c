@@ -22,6 +22,7 @@ static Result g_hid_init_result = RESULT_NOT_INITIALIZED;
 static Result g_lbl_init_result = RESULT_NOT_INITIALIZED;
 static Result g_audctl_init_result = RESULT_NOT_INITIALIZED;
 static Result g_pminfo_init_result = RESULT_NOT_INITIALIZED;
+static Result g_setsys_init_result = RESULT_NOT_INITIALIZED;
 static Thread g_power_guard_thread = {0};
 static bool g_power_guard_thread_active = false;
 
@@ -57,6 +58,7 @@ void __appExit(void) {
         threadClose(&g_power_guard_thread);
         g_power_guard_thread_active = false;
     }
+    if (R_SUCCEEDED(g_setsys_init_result)) setsysExit();
     if (R_SUCCEEDED(g_pminfo_init_result)) pminfoExit();
     if (R_SUCCEEDED(g_audctl_init_result)) audctlExit();
     if (R_SUCCEEDED(g_lbl_init_result)) lblExit();
@@ -186,6 +188,7 @@ typedef enum {
     OptionalService_Lbl,
     OptionalService_Audctl,
     OptionalService_Pminfo,
+    OptionalService_Setsys,
 } OptionalService;
 
 typedef struct {
@@ -210,6 +213,9 @@ static void optional_init_thread(void *arg) {
                 break;
             case OptionalService_Pminfo:
                 rc = pminfoInitialize();
+                break;
+            case OptionalService_Setsys:
+                rc = setsysInitialize();
                 break;
         }
         smExit();
@@ -285,6 +291,10 @@ static void init_optional_services(AppState *state) {
     state->svc_pminfo_ready = R_SUCCEEDED(g_pminfo_init_result);
     append_log_result("pminfo_init", g_pminfo_init_result);
 
+    g_setsys_init_result = init_service_with_timeout("setsys", OptionalService_Setsys);
+    state->svc_setsys_ready = R_SUCCEEDED(g_setsys_init_result);
+    append_log_result("setsys_init", g_setsys_init_result);
+
     append_log("optional service init done");
 }
 
@@ -321,6 +331,7 @@ static void write_heartbeat(AppState *state) {
     fprintf(file, "lbl_init=0x%x\n", g_lbl_init_result);
     fprintf(file, "audctl_init=0x%x\n", g_audctl_init_result);
     fprintf(file, "pminfo_init=0x%x\n", g_pminfo_init_result);
+    fprintf(file, "setsys_init=0x%x\n", g_setsys_init_result);
     mutexUnlock(&state->lock);
 
     fclose(file);

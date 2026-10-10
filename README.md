@@ -35,13 +35,67 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 
 ## What It Does
 
-- Shows battery, charging state, temperature, brightness, volume, and connected controllers in Home Assistant.
-- Reports whether a game is running and publishes the current game Title ID.
-- Exposes reboot and shutdown buttons in Home Assistant.
-- Sends Home Assistant popup notifications to the Switch.
-- Provides a simple Homebrew configuration app on the console.
-- Uses MQTT Discovery so entities appear automatically in Home Assistant.
-- Live screen streaming to Home Assistant via RTSP.
+- **Remote Control Entity**: Control your Nintendo Switch like a smart TV / remote in Home Assistant (power, sleep/wake, volume up/down/mute, brightness, reboot, shutdown).
+- **Media Player Entity**: Track playing state, view current game title, and control volume directly with standard media player controls.
+- **Firmware Update Entity**: Shows installed firmware version with direct links to [THZoria/NX_Firmware Releases](https://github.com/THZoria/NX_Firmware/releases).
+- **Console & Battery Telemetry**: Shows battery level, charging state, voltage, temperature, health, screen brightness, volume, audio output target, and connected controllers.
+- **Game Detection**: Reports whether a game is currently running and publishes the current game Title ID and localized title name.
+- **Power Buttons**: Exposes reboot and shutdown buttons in Home Assistant.
+- **In-Game Notifications**: Displays Home Assistant popup notifications over your game without needing Tesla Menu.
+- **Live Video Streaming**: Real-time RTSP screen stream directly into Home Assistant Generic Camera.
+- **Zero Config MQTT Discovery**: All entities appear automatically in Home Assistant.
+
+## Supported Home Assistant Entities
+
+| Domain | Entity | Description | Type / Values |
+| --- | --- | --- | --- |
+| `remote` | `Remote` | TV-style remote control | Power on/off, sleep/wake, volume, brightness, reboot, shutdown |
+| `media_player` | `MediaPlayer` | Media player controller | State (`playing`, `idle`, `off`), volume slider, current game title |
+| `update` | `Firmware` | Firmware update tracker | Current installed FW version, release URL ([THZoria/NX_Firmware](https://github.com/THZoria/NX_Firmware/releases)) |
+| `sensor` | `Battery Level` | Battery charge percentage | `%` (0–100) |
+| `binary_sensor` | `Is Charging` | Battery charger connection | `ON` / `OFF` |
+| `sensor` | `Charger Type` | Detected charger power rate | `unconnected`, `enough_power`, `low_power`, `not_supported` |
+| `sensor` | `Battery Voltage` | Real-time battery voltage | `mV` |
+| `sensor` | `Battery Temperature` | Battery temperature | `°C` |
+| `sensor` | `Battery Health` | Battery capacity health percentage | `%` |
+| `sensor` | `Screen Brightness` | Current display brightness level | `%` (0–100) |
+| `binary_sensor` | `Screen` | Screen backlight status | `ON` / `OFF` |
+| `sensor` | `Volume` | System audio volume | `%` (0–100) |
+| `sensor` | `Audio Output Target` | Active audio endpoint | `speaker`, `headphone`, `tv`, `usb`, `bluetooth` |
+| `binary_sensor` | `Game Running` | Status if a game is active | `ON` / `OFF` |
+| `sensor` | `Current Game` | Name of the running game | Game Title String |
+| `sensor` | `Current Game Title ID` | Hex Title ID of running game | 16-character hex (e.g. `0100000000010000`) |
+| `sensor` | `Player Count` | Number of active player controllers | `0` – `8` |
+| `sensor` | `Player 1–8 Controller` | Controller model per player slot | `handheld`, `joydual`, `joyleft`, `joyright`, `pro`, `gamecube`, `snes`, `n64`, `genesis` |
+| `sensor` | `Screen Stream URL` | RTSP live video stream URL | `rtsp://<switch_ip>:8554/` |
+| `button` | `Reboot` | Restarts the Switch console | Button press |
+| `button` | `Shutdown` | Powers down the Switch console | Button press |
+| `notify` | `Popup Notification` | In-game notification toast | Text message / JSON payload |
+
+## Remote Control & Media Player Usage
+
+### Remote Entity Commands
+You can send commands using Home Assistant's `remote.send_command` service:
+
+```yaml
+action: remote.send_command
+target:
+  entity_id: remote.nintendo_switch_remote
+data:
+  command:
+    - volume_up       # Increases volume
+    - volume_down     # Decreases volume
+    - volume_mute     # Mutes/unmutes audio
+    - brightness_up   # Increases display brightness
+    - brightness_down # Decreases display brightness
+    - screen_off      # Turns off screen / sleep
+    - screen_on       # Turns on screen / wake
+    - reboot          # Reboots console
+    - shutdown        # Powers off console
+```
+
+### Media Player Entity
+The media player entity automatically reflects whether the Switch is actively playing a game (`playing`), on the home menu (`idle`), or asleep (`off`). It displays the current game as the media title and allows direct volume slider control from standard media control cards.
 
 ## How It Works
 

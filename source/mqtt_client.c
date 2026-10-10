@@ -649,6 +649,12 @@ static void media_player_title_topic(const AppConfig *config, char *topic, size_
     snprintf(topic, topic_size, "switch_ha/%s/media_player/title", safe_id);
 }
 
+static void update_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/update/firmware/state", safe_id);
+}
+
 static void notification_status_topic(const AppConfig *config, char *topic, size_t topic_size) {
     char safe_id[80];
     sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
@@ -963,6 +969,31 @@ static void publish_discovery_media_player(int fd, const AppConfig *config) {
     mqtt_send_publish(fd, topic, payload, true);
 }
 
+static void publish_discovery_update(int fd, const AppConfig *config) {
+    char topic[256];
+    char state_top[192];
+    char payload[MQTT_BUFFER];
+    char safe_id[80];
+
+    sanitize_id(client_id_or_device(config), safe_id, sizeof(safe_id));
+    discovery_topic(config, "update", "firmware", topic, sizeof(topic));
+    update_state_topic(config, state_top, sizeof(state_top));
+
+    snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s Firmware\",\"uniq_id\":\"%s_firmware\",\"stat_t\":\"%s\","
+             "\"title\":\"Nintendo Switch Firmware\",\"dev_cla\":\"firmware\","
+             "\"release_url\":\"https://github.com/THZoria/NX_Firmware/releases\","
+             "\"entity_picture\":\"https://raw.githubusercontent.com/ErSeraph/switch-assistant/main/assets/icon.jpg\","
+             "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
+             config->device_name,
+             safe_id,
+             state_top,
+             safe_id,
+             config->device_name);
+
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
 static void clear_discovery_topic(int fd, const AppConfig *config, const char *component, const char *sensor) {
     char topic[256];
     discovery_topic(config, component, sensor, topic, sizeof(topic));
@@ -1007,6 +1038,7 @@ static void publish_sensor_discovery(AppState *state, int fd, const AppConfig *c
     }
     publish_discovery_remote(fd, config);
     publish_discovery_media_player(fd, config);
+    publish_discovery_update(fd, config);
     if (state->app_mode == AppMode_Sysmodule) {
         publish_discovery_sensor(fd, config, "sensor", SCREEN_RTSP_URL_SENSOR, "Screen Stream URL", NULL, NULL, NULL);
         clear_discovery_topic(fd, config, "sensor", "screen_stream_status");
@@ -1219,6 +1251,28 @@ static void publish_switch_sensors(AppState *state, int fd, const AppConfig *con
         mqtt_send_publish(fd, mp_vol_top, vol_payload, true);
 
         mqtt_send_publish(fd, mp_title_top, snapshot->current_game_name, true);
+    }
+    {
+        char update_top[192];
+        update_state_topic(config, update_top, sizeof(update_top));
+
+        char fw_ver[32] = "Unknown";
+        if (state->svc_setsys_ready) {
+            SetSysFirmwareVersion fw;
+            if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
+                if (fw.display_version[0] != '\0') {
+                    snprintf(fw_ver, sizeof(fw_ver), "%s", fw.display_version);
+                } else {
+                    snprintf(fw_ver, sizeof(fw_ver), "%u.%u.%u", fw.major, fw.minor, fw.micro);
+                }
+            }
+        }
+
+        char update_payload[256];
+        snprintf(update_payload, sizeof(update_payload),
+                 "{\"installed_version\":\"%s\",\"latest_version\":\"%s\",\"title\":\"Nintendo Switch Firmware\",\"release_url\":\"https://github.com/THZoria/NX_Firmware/releases\"}",
+                 fw_ver, fw_ver);
+        mqtt_send_publish(fd, update_top, update_payload, true);
     }
     snapshot->initialized = true;
 }
