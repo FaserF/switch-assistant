@@ -39,6 +39,18 @@ static void trim_line(char *value) {
     }
 }
 
+static const char *case_str_search(const char *haystack, const char *needle) {
+    if (!haystack || !needle) return NULL;
+    if (needle[0] == '\0') return haystack;
+    size_t needle_len = strlen(needle);
+    for (size_t i = 0; haystack[i]; ++i) {
+        if (strncasecmp(haystack + i, needle, needle_len) == 0) {
+            return haystack + i;
+        }
+    }
+    return NULL;
+}
+
 static bool parse_title_id(const char *value, u64 *application_id) {
     if (!value || value[0] == '\0') {
         return false;
@@ -501,18 +513,6 @@ void title_cache_build_json_games_attr(char *out, size_t out_size, int min_playe
     title_cache_build_json_options_array_for_players(options_json, sizeof(options_json), min_players);
 
     snprintf(out, out_size, "{\"count\":%zu,\"min_players\":%d,\"games\":%s}", count, min_players, options_json);
-}
-
-static const char *case_str_search(const char *haystack, const char *needle) {
-    if (!haystack || !needle) return NULL;
-    if (needle[0] == '\0') return haystack;
-    size_t needle_len = strlen(needle);
-    for (size_t i = 0; haystack[i]; ++i) {
-        if (strncasecmp(haystack + i, needle, needle_len) == 0) {
-            return haystack + i;
-        }
-    }
-    return NULL;
 }
 
 bool title_cache_find_application_id_by_name(const char *name, u64 *out_application_id) {
