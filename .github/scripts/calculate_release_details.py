@@ -1,3 +1,4 @@
+import contextlib
 import glob
 import json
 import os
@@ -17,6 +18,12 @@ def run_git(args):
         return ""
 
 
+# Upstream fork baseline: the original repo and the last upstream tag before this fork
+UPSTREAM_REPO = "ErSeraph/switch-assistant"
+UPSTREAM_BASELINE_TAG = "v1.8"
+UPSTREAM_RELEASE_URL = f"https://github.com/{UPSTREAM_REPO}/releases/tag/{UPSTREAM_BASELINE_TAG}"
+
+
 def main():
     rtype = os.environ.get("RELEASE_TYPE", "beta")
     bump_level = os.environ.get("BUMP_LEVEL", "patch")
@@ -24,7 +31,7 @@ def main():
     repo = os.environ.get("REPO", "")
 
     # Determine owner and repo_name dynamically
-    owner = "faserf"
+    owner = "FaserF"
     repo_name = os.path.basename(os.getcwd())
     if "/" in repo:
         owner, repo_name = repo.split("/", 1)
@@ -54,7 +61,7 @@ def main():
             docs_url = (
                 f"https://github.com/{repo}"
                 if repo
-                else f"https://github.com/faserf/{repo_name}"
+                else f"https://github.com/FaserF/{repo_name}"
             )
 
     # Calculate version via version_manager
@@ -74,9 +81,9 @@ def main():
         version = subprocess.check_output(bump_args).decode("utf-8").strip()
     except Exception as e:
         print(f"Error calculating version: {e}")
-        version = "1.8.0"
+        version = "2.0.0b0"
 
-    # Revert version bump change in modified files (since versioning job only calculates it, sync-version actually writes it)
+    # Revert version bump change in modified files (versioning job only calculates; sync-version writes)
     if manifest_path:
         run_git(["checkout", "--", manifest_path])
     if os.path.exists("version.mk"):
@@ -96,6 +103,7 @@ def main():
 
     changelog_from = ""
     changelog_label = "initial release — full history"
+    is_first_release = False
 
     # Get sorted list of tags
     tags_raw = run_git(["tag", "-l", "[0-9]*", "v[0-9]*", "--sort=-v:refname"])
@@ -106,21 +114,28 @@ def main():
             latest_tag = t
             break
 
+    # Filter out upstream-only tags (1.x without patch, e.g. v1.8 — these were X.Y format, not X.Y.Z)
+    # Our own releases are X.Y.Z or X.Y.ZbN; upstream tags are X.Y (two parts only)
+    own_tags = [
+        t for t in tags
+        if re.match(r"^v?\d+\.\d+\.\d+(?:(?:b|-dev|-nightly)\d+)?$", t)
+    ]
+
     if rtype == "stable":
-        for t in tags:
+        for t in own_tags:
             if re.match(r"^v?\d+\.\d+\.\d+$", t):
                 changelog_from = t
                 changelog_label = f"since last stable release (`{t}`)"
                 break
     elif rtype == "beta":
         prev_beta_pat = re.compile(rf"^v?{re.escape(base_version)}(?:b|-beta)\d+$")
-        for t in tags:
+        for t in own_tags:
             if prev_beta_pat.match(t):
                 changelog_from = t
                 changelog_label = f"since previous beta (`{t}`)"
                 break
         if not changelog_from:
-            for t in tags:
+            for t in own_tags:
                 if re.match(r"^v?\d+\.\d+\.\d+$", t):
                     changelog_from = t
                     changelog_label = f"since last stable release (`{t}`) — first beta of {base_version}"
@@ -129,6 +144,16 @@ def main():
         if latest_tag:
             changelog_from = latest_tag
             changelog_label = f"since `{latest_tag}`"
+
+    # Detect first-ever own release: if no own tags found yet, this is the initial release
+    # and we reference the upstream fork baseline (v1.8 of ErSeraph/switch-assistant)
+    if not own_tags or (not changelog_from and not own_tags):
+        is_first_release = True
+        changelog_from = UPSTREAM_BASELINE_TAG
+        changelog_label = (
+            f"initial release — based on upstream fork "
+            f"[{UPSTREAM_BASELINE_TAG}]({UPSTREAM_RELEASE_URL})"
+        )
 
     print(f"Changelog range start tag: '{changelog_from}' ({changelog_label})")
 
@@ -140,30 +165,44 @@ def main():
     if commit_count_raw.isdigit():
         total_commit_count = int(commit_count_raw)
 
-    # Generate Changelog
+    # Generate Changelog using changelog_builder.py (preferred) or fallback
     changelog_md = ""
-    if os.path.exists("scripts/generate_changelog.py"):
+    script_path = None
+    if os.path.exists(".github/scripts/changelog_builder.py"):
+        script_path = ".github/scripts/changelog_builder.py"
+    elif os.path.exists("scripts/generate_changelog.py"):
+        script_path = "scripts/generate_changelog.py"
+
+    if script_path:
         try:
-            changelog_md = (
-                subprocess.check_output(
-                    [
-                        "python",
-                        "scripts/generate_changelog.py",
-                        "--from-tag",
-                        changelog_from,
-                        "--total-commits",
-                        str(total_commit_count),
-                        "--repo",
-                        repo,
-                    ]
-                )
-                .decode("utf-8")
-                .strip()
+            repo_url = (
+                f"https://github.com/{repo}"
+                if repo
+                else f"https://github.com/{owner}/{repo_name}"
             )
-        except Exception:  # noqa: BLE001
-            changelog_md = (
-                "_Changelog could not be generated automatically. See commit history._"
-            )
+            cl_args = [
+                "python",
+                script_path,
+                "--repo-url",
+                repo_url,
+                "--output",
+                "CHANGELOG_BODY.md",
+            ]
+            if changelog_from:
+                cl_args.extend(["--from-tag", changelog_from])
+            # Pass upstream baseline info for first-release note
+            if is_first_release and "--upstream-ref" in open(script_path).read():
+                cl_args.extend(["--upstream-ref", UPSTREAM_BASELINE_TAG])
+                cl_args.extend(["--upstream-url", UPSTREAM_RELEASE_URL])
+            subprocess.run(cl_args, check=True)
+            if os.path.exists("CHANGELOG_BODY.md"):
+                with open("CHANGELOG_BODY.md", encoding="utf-8") as cl_file:
+                    changelog_md = cl_file.read().strip()
+                with contextlib.suppress(OSError):
+                    os.remove("CHANGELOG_BODY.md")
+        except Exception as e:  # noqa: BLE001
+            print(f"Error generating changelog: {e}")
+            changelog_md = "_Changelog could not be generated automatically. See commit history._"
     else:
         changelog_md = "_Changelog script not found._"
 
@@ -266,8 +305,10 @@ def main():
         f"> **Affected areas:** {impact_str}\n"
     )
 
+    # Download asset filename
     download_asset = f"{domain}.zip" if manifest_path else "switch-ha.nro"
     released_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M") + " UTC"
+
     body_parts = [
         f"# {friendly_name} {version}  {channel_badge}",
         "",
