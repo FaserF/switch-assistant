@@ -1,0 +1,39 @@
+name: Validate Sysmodule
+on:
+  push:
+    paths:
+      - 'sysmodule/**'
+      - 'overlay/**'
+      - 'overlay-loader/**'
+      - 'source/**'
+      - 'include/**'
+      - '.github/workflows/sysmodule_validation.yml'
+  pull_request:
+    paths:
+      - 'sysmodule/**'
+      - 'overlay/**'
+      - 'overlay-loader/**'
+      - 'source/**'
+      - 'include/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate JSON Structure and Syscalls
+        run: |
+          if [ -f sysmodule/switch-ha-sysmodule.json ]; then
+            python3 scripts/validate_sysmodule.py sysmodule/switch-ha-sysmodule.json
+          fi
+        
+      - name: Verify Sysmodule Compilation
+        uses: docker://devkitpro/devkita64:latest
+        with:
+          args: /bin/bash -c "export PATH=$PATH:/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin && cd sysmodule && make install-layout"
+
+      - name: Verify App Compilation
+        uses: docker://devkitpro/devkita64:latest
+        with:
+          args: /bin/bash -c "export PATH=$PATH:/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin && make"
