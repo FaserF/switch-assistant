@@ -1,0 +1,490 @@
+#include "mqtt/mqtt_state.h"
+#include "mqtt/mqtt_proto.h"
+#include "mqtt/mqtt_topics.h"
+#include "screen_stream.h"
+#include "title_cache.h"
+
+#include <switch.h>
+#include <switch/services/applet.h>
+#include <switch/services/ts.h>
+#include <switch/services/nifm.h>
+#include <switch/services/fs.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+
+static const char *charger_type_name(PsmChargerType type) {
+    switch (type) {
+        case PsmChargerType_Unconnected:
+            return "unconnected";
+        case PsmChargerType_EnoughPower:
+            return "enough_power";
+        case PsmChargerType_LowPower:
+            return "low_power";
+        case PsmChargerType_NotSupported:
+            return "not_supported";
+        default:
+            return "unknown";
+    }
+}
+
+static const char *audio_target_name(AudioTarget target) {
+    switch (target) {
+        case AudioTarget_Speaker:
+            return "speaker";
+        case AudioTarget_Headphone:
+            return "headphone";
+        case AudioTarget_Tv:
+            return "tv";
+        case AudioTarget_UsbOutputDevice:
+            return "usb";
+        case AudioTarget_Bluetooth:
+            return "bluetooth";
+        default:
+            return "unknown";
+    }
+}
+
+static const char *controller_style_name(u32 style) {
+    if (style & HidNpadStyleTag_NpadHandheld) return "handheld";
+    if (style & HidNpadStyleTag_NpadJoyDual) return "joydual";
+    if (style & HidNpadStyleTag_NpadJoyLeft) return "joyleft";
+    if (style & HidNpadStyleTag_NpadJoyRight) return "joyright";
+    if (style & HidNpadStyleTag_NpadFullKey) return "pro";
+    if (style & HidNpadStyleTag_NpadGc) return "gamecube";
+    if (style & HidNpadStyleTag_NpadLucia) return "snes";
+    if (style & HidNpadStyleTag_NpadLagon) return "n64";
+    if (style & HidNpadStyleTag_NpadLager) return "genesis";
+    if (style & HidNpadStyleTag_NpadSystemExt) return "system_ext";
+    if (style & HidNpadStyleTag_NpadSystem) return "system";
+    return "unknown";
+}
+
+static bool npad_has_state(HidNpadIdType id, u32 style, u32 *attributes) {
+    HidNpadCommonState state;
+    size_t count = 0;
+
+    memset(&state, 0, sizeof(state));
+    if (style & HidNpadStyleTag_NpadHandheld) {
+        count = hidGetNpadStatesHandheld(id, &state, 1);
+    } else if (style & HidNpadStyleTag_NpadJoyDual) {
+        count = hidGetNpadStatesJoyDual(id, &state, 1);
+    } else if (style & HidNpadStyleTag_NpadJoyLeft) {
+        count = hidGetNpadStatesJoyLeft(id, &state, 1);
+    } else if (style & HidNpadStyleTag_NpadJoyRight) {
+        count = hidGetNpadStatesJoyRight(id, &state, 1);
+    } else if (style & HidNpadStyleTag_NpadFullKey) {
+        count = hidGetNpadStatesFullKey(id, &state, 1);
+    } else if (style & HidNpadStyleTag_NpadGc) {
+        HidNpadGcState gc_state;
+        memset(&gc_state, 0, sizeof(gc_state));
+        count = hidGetNpadStatesGc(id, &gc_state, 1);
+        state.attributes = gc_state.attributes;
+    }
+
+    if (count == 0 || !(state.attributes & HidNpadAttribute_IsConnected)) {
+        return false;
+    }
+
+    if (attributes) {
+        *attributes = state.attributes;
+    }
+    return true;
+}
+
+static void controller_value(char *out, size_t out_size, u32 style) {
+    snprintf(out, out_size, "%s", controller_style_name(style));
+}
+
+static void copy_text(char *out, size_t out_size, const char *text) {
+    if (out_size == 0) {
+        return;
+    }
+    size_t len = strnlen(text, out_size - 1);
+    memcpy(out, text, len);
+    out[len] = '\0';
+}
+
+static bool local_ipv4_for_socket(int fd, char *out, size_t out_size) {
+    struct sockaddr_in addr = {0};
+    socklen_t len = sizeof(addr);
+
+    if (fd < 0 || getsockname(fd, (struct sockaddr *) &addr, &len) != 0 || addr.sin_family != AF_INET) {
+        return false;
+    }
+
+    return inet_ntop(AF_INET, &addr.sin_addr, out, out_size) != NULL;
+}
+
+static void build_screen_rtsp_url(int fd, char *out, size_t out_size) {
+    char ip[64];
+
+    if (!local_ipv4_for_socket(fd, ip, sizeof(ip))) {
+        snprintf(out, out_size, "unknown");
+        return;
+    }
+
+    snprintf(out, out_size, "rtsp://%s:%u/", ip, screen_stream_port());
+}
+
+static void set_game_status(AppState *state, const char *fmt, ...) {
+    char message[SHA_LOG_LINE];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(message, sizeof(message), fmt, args);
+    va_end(args);
+
+    mutexLock(&state->lock);
+    if (strncmp(state->game_status, message, sizeof(state->game_status)) != 0) {
+        copy_text(state->game_status, sizeof(state->game_status), message);
+    }
+    mutexUnlock(&state->lock);
+}
+
+static bool get_program_id_quiet(u64 pid, u64 *program_id) {
+    if (R_SUCCEEDED(pminfoGetProgramId(program_id, pid)) && *program_id != 0) {
+        return true;
+    }
+    return false;
+}
+
+static bool scan_process_list_for_known_game(AppState *state, u64 *pid_out, u64 *program_id_out, char *name, size_t name_size) {
+    u64 process_ids[96];
+    s32 process_count = 0;
+    Result rc = svcGetProcessList(&process_count, process_ids, (u32) (sizeof(process_ids) / sizeof(process_ids[0])));
+    if (R_FAILED(rc)) {
+        set_game_status(state, "process list failed rc=0x%x", rc);
+        return false;
+    }
+
+    u64 best_pid = 0;
+    u64 best_program_id = 0;
+    if (process_count > (s32) (sizeof(process_ids) / sizeof(process_ids[0]))) {
+        process_count = (s32) (sizeof(process_ids) / sizeof(process_ids[0]));
+    }
+
+    for (s32 i = 0; i < process_count; ++i) {
+        u64 program_id = 0;
+        if (!get_program_id_quiet(process_ids[i], &program_id)) {
+            continue;
+        }
+        if (!title_cache_lookup(program_id, name, name_size)) {
+            continue;
+        }
+        best_pid = process_ids[i];
+        best_program_id = program_id;
+        break;
+    }
+
+    if (best_program_id == 0) {
+        set_game_status(state, "process scan no known game count=%d", process_count);
+        return false;
+    }
+
+    *pid_out = best_pid;
+    *program_id_out = best_program_id;
+    return true;
+}
+
+static bool current_game(AppState *state, u64 *application_id, char *name, size_t name_size) {
+    if (!state->svc_pminfo_ready) {
+        set_game_status(state, "pminfo unavailable");
+        return false;
+    }
+
+    u64 program_id = 0;
+    u64 pid = 0;
+
+    if (scan_process_list_for_known_game(state, &pid, &program_id, name, name_size)) {
+        *application_id = program_id;
+        set_game_status(state, "running scan=0x%016llx pid=%llu", (unsigned long long) program_id, (unsigned long long) pid);
+        return true;
+    }
+
+    return false;
+}
+
+static void publish_value(int fd, const AppConfig *config, const char *sensor, const char *payload) {
+    char topic[192];
+    mqtt_state_topic(config, sensor, topic, sizeof(topic));
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
+static void publish_if_changed(int fd, const AppConfig *config, SensorSnapshot *snapshot, bool force,
+                               const char *sensor, char *previous, size_t previous_size, const char *current) {
+    if (force || !snapshot->initialized || strncmp(previous, current, previous_size) != 0) {
+        publish_value(fd, config, sensor, current);
+        size_t len = strlen(current);
+        if (len >= previous_size) {
+            len = previous_size - 1;
+        }
+        memcpy(previous, current, len);
+        previous[len] = '\0';
+    }
+}
+
+void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *config, SensorSnapshot *snapshot, bool force) {
+    char value[64];
+    u32 percent = 0;
+    PsmChargerType charger = PsmChargerType_Unconnected;
+    PsmBatteryChargeInfoFields info = {0};
+    mutexLock(&state->lock);
+    bool power_sleeping = state->power_sleeping;
+    mutexUnlock(&state->lock);
+
+    if (R_SUCCEEDED(psmGetBatteryChargePercentage(&percent))) {
+        snprintf(value, sizeof(value), "%u", percent);
+        publish_if_changed(fd, config, snapshot, force, "battery", snapshot->battery, sizeof(snapshot->battery), value);
+    } else if (force) {
+        publish_if_changed(fd, config, snapshot, force, "battery", snapshot->battery, sizeof(snapshot->battery), "0");
+    }
+
+    if (R_SUCCEEDED(psmGetChargerType(&charger))) {
+        publish_if_changed(fd, config, snapshot, force, "charging", snapshot->charging, sizeof(snapshot->charging),
+                           charger == PsmChargerType_Unconnected ? "OFF" : "ON");
+        publish_if_changed(fd, config, snapshot, force, "charger_type", snapshot->charger_type, sizeof(snapshot->charger_type),
+                           charger_type_name(charger));
+    } else if (force) {
+        publish_if_changed(fd, config, snapshot, force, "charging", snapshot->charging, sizeof(snapshot->charging), "OFF");
+        publish_if_changed(fd, config, snapshot, force, "charger_type", snapshot->charger_type, sizeof(snapshot->charger_type), "unknown");
+    }
+
+    if (R_SUCCEEDED(psmGetBatteryChargeInfoFields(&info))) {
+        snprintf(value, sizeof(value), "%u", info.battery_charge_milli_voltage);
+        publish_if_changed(fd, config, snapshot, force, "battery_voltage", snapshot->battery_voltage, sizeof(snapshot->battery_voltage), value);
+
+        snprintf(value, sizeof(value), "%.1f", (double) info.temperature_celcius / 1000.0);
+        publish_if_changed(fd, config, snapshot, force, "battery_temperature", snapshot->battery_temperature, sizeof(snapshot->battery_temperature), value);
+
+        snprintf(value, sizeof(value), "%.1f", (double) info.battery_age_percentage / 1000.0);
+        publish_if_changed(fd, config, snapshot, force, "battery_health", snapshot->battery_health, sizeof(snapshot->battery_health), value);
+    } else if (force) {
+        publish_if_changed(fd, config, snapshot, force, "battery_voltage", snapshot->battery_voltage, sizeof(snapshot->battery_voltage), "0");
+        publish_if_changed(fd, config, snapshot, force, "battery_temperature", snapshot->battery_temperature, sizeof(snapshot->battery_temperature), "0");
+        publish_if_changed(fd, config, snapshot, force, "battery_health", snapshot->battery_health, sizeof(snapshot->battery_health), "0");
+    }
+
+    if (power_sleeping) {
+        publish_if_changed(fd, config, snapshot, force, "backlight", snapshot->backlight, sizeof(snapshot->backlight), "OFF");
+    } else if (state->svc_lbl_ready) {
+        float brightness = 0.0f;
+        if (R_SUCCEEDED(lblGetCurrentBrightnessSetting(&brightness)) || R_SUCCEEDED(lblGetBrightnessSettingAppliedToBacklight(&brightness))) {
+            snprintf(value, sizeof(value), "%.0f", (double) (brightness * 100.0f));
+            publish_if_changed(fd, config, snapshot, force, "brightness", snapshot->brightness, sizeof(snapshot->brightness), value);
+        }
+
+        LblBacklightSwitchStatus backlight = LblBacklightSwitchStatus_Disabled;
+        if (R_SUCCEEDED(lblGetBacklightSwitchStatus(&backlight))) {
+            publish_if_changed(fd, config, snapshot, force, "backlight", snapshot->backlight, sizeof(snapshot->backlight),
+                               backlight == LblBacklightSwitchStatus_Enabled || backlight == LblBacklightSwitchStatus_Enabling ? "ON" : "OFF");
+        }
+    }
+
+    if (state->svc_audctl_ready) {
+        AudioTarget audio_target = AudioTarget_Invalid;
+        if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
+            publish_if_changed(fd, config, snapshot, force, "audio_target", snapshot->audio_target, sizeof(snapshot->audio_target),
+                               audio_target_name(audio_target));
+
+            s32 target_volume = 0;
+            s32 min_volume = 0;
+            s32 max_volume = 0;
+            if (R_SUCCEEDED(audctlGetTargetVolume(&target_volume, audio_target)) &&
+                R_SUCCEEDED(audctlGetTargetVolumeMin(&min_volume)) &&
+                R_SUCCEEDED(audctlGetTargetVolumeMax(&max_volume)) &&
+                max_volume > min_volume) {
+                double pct = ((double) (target_volume - min_volume) * 100.0) / (double) (max_volume - min_volume);
+                if (pct < 0.0) pct = 0.0;
+                if (pct > 100.0) pct = 100.0;
+                snprintf(value, sizeof(value), "%.0f", pct);
+                publish_if_changed(fd, config, snapshot, force, "volume", snapshot->volume, sizeof(snapshot->volume), value);
+            } else {
+                float master_volume = 0.0f;
+                if (R_SUCCEEDED(audctlGetSystemOutputMasterVolume(&master_volume))) {
+                    snprintf(value, sizeof(value), "%.0f", (double) (master_volume * 100.0f));
+                    publish_if_changed(fd, config, snapshot, force, "volume", snapshot->volume, sizeof(snapshot->volume), value);
+                }
+            }
+        }
+    }
+
+    u64 application_id = 0;
+    char game_name[0x200];
+    if (current_game(state, &application_id, game_name, sizeof(game_name))) {
+        publish_if_changed(fd, config, snapshot, force, "game_running", snapshot->game_running, sizeof(snapshot->game_running), "ON");
+        publish_if_changed(fd, config, snapshot, force, "current_game", snapshot->current_game_name, sizeof(snapshot->current_game_name), game_name);
+        if (application_id != 0) {
+            snprintf(value, sizeof(value), "%016llx", (unsigned long long) application_id);
+        } else {
+            snprintf(value, sizeof(value), "unknown");
+        }
+        publish_if_changed(fd, config, snapshot, force, "current_game_id", snapshot->current_game_id, sizeof(snapshot->current_game_id), value);
+    } else {
+        publish_if_changed(fd, config, snapshot, force, "game_running", snapshot->game_running, sizeof(snapshot->game_running), "OFF");
+        publish_if_changed(fd, config, snapshot, force, "current_game", snapshot->current_game_name, sizeof(snapshot->current_game_name), "none");
+        publish_if_changed(fd, config, snapshot, force, "current_game_id", snapshot->current_game_id, sizeof(snapshot->current_game_id), "none");
+    }
+
+    HidNpadIdType player_ids[] = {
+        HidNpadIdType_No1, HidNpadIdType_No2, HidNpadIdType_No3, HidNpadIdType_No4,
+        HidNpadIdType_No5, HidNpadIdType_No6, HidNpadIdType_No7, HidNpadIdType_No8
+    };
+    if (state->svc_hid_ready) {
+        int player_controller_count = 0;
+        char player_values[MAX_PLAYERS][32];
+
+        for (int i = 0; i < MAX_PLAYERS; ++i) {
+            snprintf(player_values[i], sizeof(player_values[i]), "none");
+        }
+
+        for (size_t i = 0; i < sizeof(player_ids) / sizeof(player_ids[0]); ++i) {
+            u32 style = hidGetNpadStyleSet(player_ids[i]);
+            u32 attributes = 0;
+            if (style == 0 || !npad_has_state(player_ids[i], style, &attributes)) {
+                continue;
+            }
+
+            player_controller_count++;
+            controller_value(player_values[i], sizeof(player_values[i]), style);
+        }
+
+        if (player_controller_count == 0) {
+            u32 style = hidGetNpadStyleSet(HidNpadIdType_Handheld);
+            u32 attributes = 0;
+            if (style != 0 && npad_has_state(HidNpadIdType_Handheld, style, &attributes)) {
+                player_controller_count = 1;
+                controller_value(player_values[0], sizeof(player_values[0]), style);
+            }
+        }
+
+        snprintf(value, sizeof(value), "%d", player_controller_count);
+        publish_if_changed(fd, config, snapshot, force, "controller_count", snapshot->player_controller_count, sizeof(snapshot->player_controller_count), value);
+        for (int i = 0; i < MAX_PLAYERS; ++i) {
+            char sensor[32];
+            snprintf(sensor, sizeof(sensor), "player_%d_controller", i + 1);
+            publish_if_changed(fd, config, snapshot, force, sensor, snapshot->player_controller[i], sizeof(snapshot->player_controller[i]), player_values[i]);
+        }
+    }
+
+    if (state->app_mode == AppMode_Sysmodule) {
+        char stream_url[128];
+        build_screen_rtsp_url(fd, stream_url, sizeof(stream_url));
+        publish_if_changed(fd, config, snapshot, force, SCREEN_RTSP_URL_SENSOR,
+                           snapshot->screen_rtsp_url, sizeof(snapshot->screen_rtsp_url), stream_url);
+    }
+    {
+        char remote_topic[192];
+        mqtt_remote_state_topic(config, remote_topic, sizeof(remote_topic));
+        mqtt_send_publish(fd, remote_topic, power_sleeping ? "OFF" : "ON", true);
+    }
+    {
+        char mp_state_top[192];
+        char mp_vol_top[192];
+        char mp_title_top[192];
+        mqtt_media_player_state_topic(config, mp_state_top, sizeof(mp_state_top));
+        mqtt_media_player_volume_state_topic(config, mp_vol_top, sizeof(mp_vol_top));
+        mqtt_media_player_title_topic(config, mp_title_top, sizeof(mp_title_top));
+
+        const char *mp_state = "off";
+        if (!power_sleeping) {
+            mp_state = (strcmp(snapshot->game_running, "ON") == 0) ? "playing" : "idle";
+        }
+        mqtt_send_publish(fd, mp_state_top, mp_state, true);
+
+        double vol_float = 0.5;
+        if (snapshot->volume[0] != '\0') {
+            vol_float = atof(snapshot->volume) / 100.0;
+            if (vol_float < 0.0) vol_float = 0.0;
+            if (vol_float > 1.0) vol_float = 1.0;
+        }
+        char vol_payload[16];
+        snprintf(vol_payload, sizeof(vol_payload), "%.2f", vol_float);
+        mqtt_send_publish(fd, mp_vol_top, vol_payload, true);
+
+        mqtt_send_publish(fd, mp_title_top, snapshot->current_game_name, true);
+    }
+    {
+        char update_top[192];
+        mqtt_update_state_topic(config, update_top, sizeof(update_top));
+
+        char fw_ver[32] = "Unknown";
+        if (state->svc_setsys_ready) {
+            SetSysFirmwareVersion fw;
+            if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
+                if (fw.display_version[0] != '\0') {
+                    snprintf(fw_ver, sizeof(fw_ver), "%s", fw.display_version);
+                } else {
+                    snprintf(fw_ver, sizeof(fw_ver), "%u.%u.%u", fw.major, fw.minor, fw.micro);
+                }
+            }
+        }
+
+        char update_payload[256];
+        snprintf(update_payload, sizeof(update_payload),
+                 "{\"installed_version\":\"%s\",\"latest_version\":\"%s\",\"title\":\"Nintendo Switch Firmware\",\"release_url\":\"https://github.com/THZoria/NX_Firmware/releases\"}",
+                 fw_ver, fw_ver);
+        mqtt_send_publish(fd, update_top, update_payload, true);
+    }
+    {
+        AppletOperationMode op_mode = appletGetOperationMode();
+        bool is_docked = (op_mode != AppletOperationMode_Handheld);
+        publish_if_changed(fd, config, snapshot, force, "docked", snapshot->docked, sizeof(snapshot->docked),
+                           is_docked ? "ON" : "OFF");
+    }
+    if (state->svc_ts_ready) {
+        s32 soc_temp = 0;
+        if (R_SUCCEEDED(tsGetTemperature(TsLocation_Internal, &soc_temp))) {
+            snprintf(value, sizeof(value), "%.1f", (double) soc_temp / 1000.0);
+            publish_if_changed(fd, config, snapshot, force, "soc_temperature", snapshot->soc_temperature, sizeof(snapshot->soc_temperature), value);
+        }
+    }
+    {
+        u64 uptime_s = armTicksToNs(armGetSystemTick()) / 1000000000ULL;
+        snprintf(value, sizeof(value), "%llu", (unsigned long long) uptime_s);
+        publish_if_changed(fd, config, snapshot, force, "uptime", snapshot->uptime, sizeof(snapshot->uptime), value);
+    }
+    if (state->svc_nifm_ready) {
+        u32 rssi = 0;
+        if (R_SUCCEEDED(nifmGetInternetConnectionStatus(NULL, &rssi, NULL))) {
+            snprintf(value, sizeof(value), "%u", rssi);
+            publish_if_changed(fd, config, snapshot, force, "wifi_rssi", snapshot->wifi_rssi, sizeof(snapshot->wifi_rssi), value);
+        }
+    }
+    {
+        FsFileSystem sd_fs;
+        if (R_SUCCEEDED(fsOpenSdCardFileSystem(&sd_fs))) {
+            s64 sd_free_bytes = 0;
+            if (R_SUCCEEDED(fsFsGetFreeSpace(&sd_fs, "/", &sd_free_bytes))) {
+                snprintf(value, sizeof(value), "%lld", (long long) (sd_free_bytes / (1024 * 1024)));
+                publish_if_changed(fd, config, snapshot, force, "sd_free", snapshot->sd_free, sizeof(snapshot->sd_free), value);
+            }
+            fsFsClose(&sd_fs);
+        }
+    }
+    {
+        u64 used_mem = 0;
+        if (R_SUCCEEDED(svcGetInfo(&used_mem, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0))) {
+            snprintf(value, sizeof(value), "%llu", (unsigned long long) (used_mem / (1024 * 1024)));
+            publish_if_changed(fd, config, snapshot, force, "memory_used", snapshot->memory_used, sizeof(snapshot->memory_used), value);
+        }
+    }
+    snapshot->initialized = true;
+}
+
+void mqtt_publish_state(AppState *state, int fd, const AppConfig *config, const char *status) {
+    char topic[SHA_MAX_TOPIC + 32];
+    char payload[256];
+    snprintf(topic, sizeof(topic), "%s/status", config->mqtt_topic_prefix);
+    snprintf(payload, sizeof(payload),
+             "{\"device\":\"%s\",\"client_id\":\"%s\",\"status\":\"%s\",\"ha_validated\":%s}",
+             config->device_name,
+             config->mqtt_client_id[0] ? config->mqtt_client_id : config->device_name,
+             status,
+             state->ha_validated ? "true" : "false");
+    mqtt_send_publish(fd, topic, payload, true);
+}
