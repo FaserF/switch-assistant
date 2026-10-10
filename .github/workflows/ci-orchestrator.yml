@@ -56,15 +56,12 @@ jobs:
               - 'assets/**'
               - 'Makefile'
               - 'version.mk'
-              - 'scripts/validate_sysmodule.py'
-              - '.github/workflows/ci-orchestrator.yml'
             python:
               - 'scripts/**'
               - '.github/scripts/**'
               - 'tests/**'
               - '**/*.py'
               - 'pyproject.toml'
-              - '.github/workflows/ci-orchestrator.yml'
             custom_components:
               - 'custom_components/**'
             hacs:
