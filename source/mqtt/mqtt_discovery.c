@@ -364,6 +364,35 @@ static void publish_discovery_update(int fd, const AppConfig *config) {
     mqtt_send_publish(fd, topic, payload, true);
 }
 
+static void publish_discovery_atmosphere_update(int fd, const AppConfig *config) {
+    char topic[256];
+    char state_top[192];
+    char cmd_top[192];
+    char payload[MQTT_BUFFER];
+    char safe_id[80];
+
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    mqtt_discovery_topic(config, "update", "atmosphere", topic, sizeof(topic));
+    mqtt_atmosphere_update_state_topic(config, state_top, sizeof(state_top));
+    mqtt_atmosphere_update_command_topic(config, cmd_top, sizeof(cmd_top));
+
+    snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s Atmosphère\",\"uniq_id\":\"%s_atmosphere\","
+             "\"stat_t\":\"%s\",\"cmd_t\":\"%s\","
+             "\"title\":\"Atmosphère Custom Firmware\",\"dev_cla\":\"firmware\","
+             "\"release_url\":\"https://github.com/Atmosphere-NX/Atmosphere/releases/latest\","
+             "\"entity_picture\":\"https://avatars.githubusercontent.com/u/39328464\","
+             "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
+             config->device_name,
+             safe_id,
+             state_top,
+             cmd_top,
+             safe_id,
+             config->device_name);
+
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
 static void publish_discovery_event(int fd, const AppConfig *config) {
     char topic[256];
     char state_top[192];
@@ -443,6 +472,7 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     publish_discovery_sensor_games_count(fd, config, "games_4p", "4-Player Games", "mdi:account-group");
     publish_discovery_sensor_games_count(fd, config, "games_8p", "8+ Player Games", "mdi:account-group-outline");
     publish_discovery_update(fd, config);
+    publish_discovery_atmosphere_update(fd, config);
     publish_discovery_event(fd, config);
     publish_discovery_sensor(fd, config, "binary_sensor", "docked", "Docked", "plug", NULL, NULL);
     if (state->svc_ts_ready) {

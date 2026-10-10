@@ -61,6 +61,7 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 | `sensor` | `4 Player Games Count` | Count & list of 4+ player games | **Enabled** | Integer count, `games` attribute list |
 | `sensor` | `8 Player Games Count` | Count & list of 8+ player games | **Enabled** | Integer count, `games` attribute list |
 | `update` | `Firmware` | Firmware update tracker | **Enabled** | Current installed FW version, release URL ([THZoria/NX_Firmware](https://github.com/THZoria/NX_Firmware/releases)) |
+| `update` | `Atmosphère` | Atmosphère CFW update tracker | **Enabled** | Current installed CFW version, GitHub release URL & summary ([Atmosphere-NX](https://github.com/Atmosphere-NX/Atmosphere)) |
 | `sensor` | `Battery` | Device battery percentage (HA Battery integration) | **Enabled** | `%` (0–100, `device_class: battery`) |
 | `binary_sensor` | `Battery Charging` | Charger connected / charging status | **Enabled** | `ON` / `OFF` (`device_class: battery_charging`) |
 | `binary_sensor` | `Docked` | Console dock status | **Enabled** | `ON` / `OFF` |

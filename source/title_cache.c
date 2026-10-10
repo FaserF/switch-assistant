@@ -339,8 +339,9 @@ size_t title_cache_refresh_installed_games(void) {
                         if (R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_Storage, app_id, ctrl_data, sizeof(*ctrl_data), &actual_size))) {
                             NacpLanguageEntry *lang_entry = NULL;
                             if (R_SUCCEEDED(nacpGetLanguageEntry(&ctrl_data->nacp, &lang_entry)) && lang_entry && lang_entry->name[0] != '\0') {
-                                strncpy(name, lang_entry->name, sizeof(name) - 1);
-                                name[sizeof(name) - 1] = '\0';
+                                size_t lang_name_len = strnlen(lang_entry->name, sizeof(name) - 1);
+                                memcpy(name, lang_entry->name, lang_name_len);
+                                name[lang_name_len] = '\0';
                             }
                         }
                     }
@@ -361,8 +362,12 @@ size_t title_cache_refresh_installed_games(void) {
                 }
                 if (!dup) {
                     g_installed_games[found].application_id = app_id;
-                    strncpy(g_installed_games[found].name, name, sizeof(g_installed_games[found].name) - 1);
-                    g_installed_games[found].name[sizeof(g_installed_games[found].name) - 1] = '\0';
+                    size_t name_len = strlen(name);
+                    if (name_len >= sizeof(g_installed_games[found].name)) {
+                        name_len = sizeof(g_installed_games[found].name) - 1;
+                    }
+                    memcpy(g_installed_games[found].name, name, name_len);
+                    g_installed_games[found].name[name_len] = '\0';
                     g_installed_games[found].max_players = title_cache_get_max_players(app_id, name);
                     found++;
                 }

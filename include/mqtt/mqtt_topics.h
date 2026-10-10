@@ -39,5 +39,7 @@ void mqtt_sensor_attr_topic(const AppConfig *config, const char *sensor, char *t
 
 void mqtt_update_state_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_update_command_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_atmosphere_update_state_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_atmosphere_update_command_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_overlay_event_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_call_service_topic(const AppConfig *config, char *topic, size_t topic_size);

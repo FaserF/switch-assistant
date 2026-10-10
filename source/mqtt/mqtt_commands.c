@@ -229,6 +229,21 @@ static void handle_media_player_volume_set(AppState *state, int fd, const AppCon
     }
 }
 
+static void handle_atmosphere_update_command(AppState *state, int fd, const AppConfig *config, const char *payload) {
+    (void) fd;
+    (void) config;
+    app_state_push_log(state, "Atmosphere update requested via HA: %s", payload ? payload : "install");
+
+    FILE *f = fopen("sdmc:/switch/switch-ha/atmosphere_update.ini", "w");
+    if (f) {
+        fprintf(f, "requested_version=%s\nstatus=requested\n", payload ? payload : "latest");
+        fclose(f);
+    }
+
+    mqtt_write_notification_files("popup", "Atmosphère Update", "Update request recorded. Check app or updater to apply.");
+    app_state_push_log(state, "Atmosphere update command recorded");
+}
+
 static void handle_firmware_update_command(AppState *state, int fd, const AppConfig *config, const char *payload) {
     (void) fd;
     (void) config;
@@ -454,6 +469,7 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     char sel_game_4p_cmd_topic[192];
     char sel_game_8p_cmd_topic[192];
     char update_cmd_topic[192];
+    char ams_update_cmd_topic[192];
 
     snprintf(command_topic, sizeof(command_topic), "%s/command", config->mqtt_topic_prefix);
     mqtt_notification_topic(config, "popup", popup_topic, sizeof(popup_topic));
@@ -468,6 +484,7 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     mqtt_select_game_4p_cmd_topic(config, sel_game_4p_cmd_topic, sizeof(sel_game_4p_cmd_topic));
     mqtt_select_game_8p_cmd_topic(config, sel_game_8p_cmd_topic, sizeof(sel_game_8p_cmd_topic));
     mqtt_update_command_topic(config, update_cmd_topic, sizeof(update_cmd_topic));
+    mqtt_atmosphere_update_command_topic(config, ams_update_cmd_topic, sizeof(ams_update_cmd_topic));
 
     if (strcmp(topic, command_topic) == 0) {
         handle_command_payload(state, fd, config, payload);
@@ -490,5 +507,7 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
         handle_launch_game_payload(state, fd, config, payload);
     } else if (strcmp(topic, update_cmd_topic) == 0) {
         handle_firmware_update_command(state, fd, config, payload);
+    } else if (strcmp(topic, ams_update_cmd_topic) == 0) {
+        handle_atmosphere_update_command(state, fd, config, payload);
     }
 }

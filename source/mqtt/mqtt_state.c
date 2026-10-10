@@ -475,17 +475,43 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
     }
     {
         char update_top[192];
+        char ams_update_top[192];
         mqtt_update_state_topic(config, update_top, sizeof(update_top));
+        mqtt_atmosphere_update_state_topic(config, ams_update_top, sizeof(ams_update_top));
 
-        char fw_ver[32] = "Unknown";
+        char fw_ver[64] = "Unknown";
+        char ams_ver[64] = "Unknown";
+
         if (state->svc_setsys_ready) {
             SetSysFirmwareVersion fw;
             if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
                 if (fw.display_version[0] != '\0') {
+                    // display_version format under Atmosphere: "18.1.0|AMS 1.7.1|E" or "18.1.0"
                     snprintf(fw_ver, sizeof(fw_ver), "%s", fw.display_version);
+                    const char *ams_ptr = strstr(fw.display_version, "AMS ");
+                    if (ams_ptr) {
+                        ams_ptr += 4;
+                        size_t idx = 0;
+                        while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && idx < sizeof(ams_ver) - 1) {
+                            ams_ver[idx] = ams_ptr[idx];
+                            idx++;
+                        }
+                        ams_ver[idx] = '\0';
+                    }
                 } else {
                     snprintf(fw_ver, sizeof(fw_ver), "%u.%u.%u", fw.major, fw.minor, fw.micro);
                 }
+            }
+        }
+
+        // Fallback or override from splGetConfig(65000) for Exosphere/Atmosphere version
+        if (strcmp(ams_ver, "Unknown") == 0) {
+            u64 exosphere_ver = 0;
+            if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
+                u32 major = (exosphere_ver >> 24) & 0xFF;
+                u32 minor = (exosphere_ver >> 16) & 0xFF;
+                u32 micro = (exosphere_ver >> 8) & 0xFF;
+                snprintf(ams_ver, sizeof(ams_ver), "%u.%u.%u", major, minor, micro);
             }
         }
 
@@ -494,6 +520,15 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
                  "{\"installed_version\":\"%s\",\"latest_version\":\"%s\",\"title\":\"Nintendo Switch Firmware\",\"release_url\":\"https://github.com/THZoria/NX_Firmware/releases\"}",
                  fw_ver, fw_ver);
         mqtt_send_publish(fd, update_top, update_payload, true);
+
+        char ams_payload[512];
+        snprintf(ams_payload, sizeof(ams_payload),
+                 "{\"installed_version\":\"%s\",\"latest_version\":\"%s\",\"title\":\"Atmosphère Custom Firmware\","
+                 "\"release_summary\":\"Atmosphère custom firmware for Nintendo Switch.\","
+                 "\"release_url\":\"https://github.com/Atmosphere-NX/Atmosphere/releases/latest\","
+                 "\"entity_picture\":\"https://avatars.githubusercontent.com/u/39328464\"}",
+                 ams_ver, ams_ver);
+        mqtt_send_publish(fd, ams_update_top, ams_payload, true);
     }
     {
         AppletOperationMode op_mode = appletGetOperationMode();
