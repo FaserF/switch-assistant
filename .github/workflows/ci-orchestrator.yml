@@ -47,7 +47,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements_test.txt ]; then pip install -r requirements_test.txt; fi
-          pip install ruff mypy pyyaml pytest pytest-asyncio pytest-cov homeassistant paramiko aiohttp pytest-homeassistant-custom-component beautifulsoup4
+          if [ -d custom_components ]; then
+            pip install ruff mypy pyyaml pytest pytest-asyncio pytest-cov homeassistant paramiko aiohttp pytest-homeassistant-custom-component beautifulsoup4
+          else
+            pip install ruff mypy pyyaml pytest pytest-asyncio pytest-cov
+          fi
 
       - name: Validate JSON/YAML
         run: |
