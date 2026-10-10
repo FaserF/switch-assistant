@@ -27,16 +27,19 @@ def get_current_version(manifest_path=None):
         v_tags = []
         for tag in tags:
             tag = tag.strip()
-            match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:(b)(\d+)|(-dev)(\d+))?$", tag)
+            match = re.match(
+                r"^v?(\d+)\.(\d+)(?:\.(\d+))?(?:(b)(\d+)|(-dev)(\d+))?$", tag
+            )
             if match:
                 y, m, p, bp, bn, dp, dn = match.groups()
+                p_int = int(p) if p is not None else 0
                 v_tags.append(
                     {
                         "tag": tag,
                         "key": (
                             int(y),
                             int(m),
-                            int(p),
+                            p_int,
                             (1 if bp else (0 if dp else 2)),
                             (int(bn) if bp else (int(dn) if dp else 0)),
                         ),
@@ -49,6 +52,16 @@ def get_current_version(manifest_path=None):
     if manifest_path and os.path.exists(manifest_path):
         with open(manifest_path, encoding="utf-8") as f:
             return json.load(f).get("version", "1.0.0")
+    if os.path.exists("version.mk"):
+        with open("version.mk", encoding="utf-8") as f:
+            m = re.search(r"APP_VERSION\s*\??=\s*([^\r\n]+)", f.read())
+            if m:
+                return m.group(1).strip()
+    if os.path.exists("pyproject.toml"):
+        with open("pyproject.toml", encoding="utf-8") as f:
+            m = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), flags=re.MULTILINE)
+            if m:
+                return m.group(1).strip()
     return "1.0.0"
 
 
@@ -94,12 +107,13 @@ def calculate_version(rtype, level="patch", curr=None, now=None, override=None):
     if curr is None:
         curr = get_current_version(MANIFEST_FILE)
 
-    match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:(b)(\d+)|(-dev)(\d+))?$", curr)
+    match = re.match(r"^v?(\d+)\.(\d+)(?:\.(\d+))?(?:(b)(\d+)|(-dev)(\d+))?$", curr)
     if not match:
         return "1.0.0"
 
     v1_str, v2_str, v3_str, b_p, b_n, d_p, d_n = match.groups()
-    v1, v2, v3 = int(v1_str), int(v2_str), int(v3_str)
+    v1, v2 = int(v1_str), int(v2_str)
+    v3 = int(v3_str) if v3_str is not None else 0
     stype, snum = ("b", int(b_n)) if b_p else (("-dev", int(d_n)) if d_p else (None, 0))
 
     # Detect scheme based on major version (e.g. 2026 is CalVer, 1 or 2 is SemVer)

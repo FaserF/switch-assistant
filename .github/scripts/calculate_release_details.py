@@ -28,22 +28,25 @@ def main():
     repo_name = os.path.basename(os.getcwd())
     if "/" in repo:
         owner, repo_name = repo.split("/", 1)
+    if not repo:
+        repo = f"{owner}/{repo_name}"
 
     # Dynamic manifest location
     manifest_files = glob.glob("custom_components/*/manifest.json")
-    if not manifest_files:
-        print("Error: manifest.json not found!")
-        return
-    manifest_path = manifest_files[0]
-    domain = os.path.basename(os.path.dirname(manifest_path))
-
-    with open(manifest_path, encoding="utf-8") as f:
-        manifest = json.load(f)
-
-    friendly_name = manifest.get("name", domain)
+    if manifest_files:
+        manifest_path = manifest_files[0]
+        domain = os.path.basename(os.path.dirname(manifest_path))
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = json.load(f)
+        friendly_name = manifest.get("name", domain)
+        docs_url = manifest.get("documentation")
+    else:
+        manifest_path = None
+        domain = "switch-assistant"
+        friendly_name = "Switch Assistant"
+        docs_url = None
 
     # Dynamic documentation URL logic
-    docs_url = manifest.get("documentation")
     if not docs_url:
         if os.path.exists("docs"):
             docs_url = f"https://{owner}.github.io/{repo_name}/"
@@ -67,10 +70,19 @@ def main():
     if version_override and version_override.strip():
         bump_args += ["--override", version_override.strip()]
 
-    version = subprocess.check_output(bump_args).decode("utf-8").strip()
+    try:
+        version = subprocess.check_output(bump_args).decode("utf-8").strip()
+    except Exception as e:
+        print(f"Error calculating version: {e}")
+        version = "1.8.0"
 
-    # Revert version bump change in manifest file (since versioning job only calculates it, sync-version actually writes it)
-    run_git(["checkout", "--", manifest_path])
+    # Revert version bump change in modified files (since versioning job only calculates it, sync-version actually writes it)
+    if manifest_path:
+        run_git(["checkout", "--", manifest_path])
+    if os.path.exists("version.mk"):
+        run_git(["checkout", "--", "version.mk"])
+    if os.path.exists("pyproject.toml"):
+        run_git(["checkout", "--", "pyproject.toml"])
 
     print(f"Calculated Version: {version}")
     tag = f"v{version}"
@@ -182,7 +194,9 @@ def main():
     for f in changed_files:
         if f.startswith(f"custom_components/{domain}/translations/"):
             translation_count += 1
-        elif f.startswith("custom_components/"):
+        elif f.startswith("custom_components/") or f.startswith(
+            ("source/", "include/", "sysmodule/", "overlay/", "overlay-loader/")
+        ):
             integration_count += 1
         elif f.startswith("tests/"):
             test_count += 1
@@ -252,6 +266,7 @@ def main():
         f"> **Affected areas:** {impact_str}\n"
     )
 
+    download_asset = f"{domain}.zip" if manifest_path else "switch-ha.nro"
     released_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M") + " UTC"
     body_parts = [
         f"# {friendly_name} {version}  {channel_badge}",
@@ -269,7 +284,7 @@ def main():
         f"| **Channel** | {rtype} |",
         f"| **Released** | {released_at} |",
         f"| **Commits included** | {total_commit_count} — {changelog_label} |",
-        f"| **Downloads (this release)** | [![Downloads](https://img.shields.io/github/downloads/{owner}/{repo_name}/{tag}/{domain}.zip?style=flat-square&logo=github)](https://github.com/{owner}/{repo_name}/releases/tag/{tag}) |",
+        f"| **Downloads (this release)** | [![Downloads](https://img.shields.io/github/downloads/{owner}/{repo_name}/{tag}/{download_asset}?style=flat-square&logo=github)](https://github.com/{owner}/{repo_name}/releases/tag/{tag}) |",
         f"| **Downloads (total)** | [![Downloads](https://img.shields.io/github/downloads/{owner}/{repo_name}/total?style=flat-square&logo=github)](https://github.com/{owner}/{repo_name}/releases) |",
         "",
         "---",

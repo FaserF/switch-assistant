@@ -78,6 +78,9 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
           python .github/scripts/calculate_release_details.py
+          if [ ! -f release_body.md ]; then
+            echo "# Release ${{ steps.get_version.outputs.version }}" > release_body.md
+          fi
 
       - name: Upload Release Body
         uses: actions/upload-artifact@v7
@@ -118,28 +121,9 @@ jobs:
             python .github/scripts/update_templates.py "${{ needs.versioning.outputs.version }}"
           fi
 
-      - name: Upload Updated Components
-
-
-        uses: actions/upload-artifact@v7
-
-
-        with:
-
-
-          name: updated-components
-
-
-          path: custom_components/
-
-
-          retention-days: 1
-
-
-
       - name: Commit and Push
         run: |
-          git add custom_components/*/manifest.json .github/ISSUE_TEMPLATE/*.yml .github/ISSUE_TEMPLATE/*.yaml 2>/dev/null || true
+          git add version.mk pyproject.toml custom_components/*/manifest.json .github/ISSUE_TEMPLATE/*.yml .github/ISSUE_TEMPLATE/*.yaml 2>/dev/null || true
           if ! git diff --staged --quiet; then
             git commit -m "chore: release version ${{ needs.versioning.outputs.version }} [skip ci]"
             git push origin HEAD:${{ github.ref_name }} || (git pull --rebase origin ${{ github.ref_name }} && git push origin HEAD:${{ github.ref_name }})
@@ -150,7 +134,7 @@ jobs:
         with:
           name: release-body
 
-      - name: Update Draft Status (Zipping Integration)
+      - name: Update Draft Status
         shell: bash
         run: |
           cp release_body.md updated_draft_body.md
@@ -184,7 +168,7 @@ jobs:
     needs: [versioning, sync-version]
     if: always() && needs.versioning.result == 'success' && needs.sync-version.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: write
       actions: write
@@ -198,21 +182,23 @@ jobs:
         run: |
           git pull --rebase origin ${{ github.ref_name }}
 
-      - name: Download Updated Components
-        uses: actions/download-artifact@v8
-        with:
-          name: updated-components
-          path: custom_components/
-
-      - name: 📦 Zip Component
+      - name: 🛠️ Build Switch NRO and Overlay
         run: |
-          DOMAIN=$(python -c "import json, glob; print(json.load(open(glob.glob('custom_components/*/manifest.json')[0]))['domain'])")
-          cd "custom_components/$DOMAIN"
-          zip -r "../../$DOMAIN.zip" .
-          cd ../..
-          mv "$DOMAIN.zip" "$DOMAIN.zip" || true
-          # Keep domain-named zip for backward compatibility
-          cp "$DOMAIN.zip" "$DOMAIN.zip" 2>/dev/null || true
+          set -euo pipefail
+          docker pull devkitpro/devkita64
+          docker run --rm -v "$PWD:/workspace" -w /workspace/sysmodule devkitpro/devkita64 /bin/bash -lc "make install-layout"
+          docker run --rm -v "$PWD:/workspace" -w /workspace/overlay devkitpro/devkita64 /bin/bash -lc "make"
+          docker run --rm -v "$PWD:/workspace" -w /workspace/overlay-loader devkitpro/devkita64 /bin/bash -lc "make install-layout"
+          mkdir -p romfs/sysmodule
+          cp sysmodule/atmosphere/contents/00FF000053484101/exefs.nsp romfs/sysmodule/exefs.nsp
+          : > romfs/sysmodule/boot2.flag
+          mkdir -p romfs/overlay-loader
+          cp overlay-loader/atmosphere/contents/00FF000053484102/exefs.nsp romfs/overlay-loader/exefs.nsp
+          : > romfs/overlay-loader/boot2.flag
+          mkdir -p romfs/overlay
+          cp overlay/switch-ha-overlay.ovl romfs/overlay/switch-ha-overlay.ovl
+          rm -rf build switch-ha.elf switch-ha.nro
+          docker run --rm -v "$PWD:/workspace" -w /workspace devkitpro/devkita64 /bin/bash -lc "make"
 
       - name: Download Release Body Artifact
         uses: actions/download-artifact@v8
@@ -228,29 +214,34 @@ jobs:
           IS_PRERELEASE: ${{ needs.versioning.outputs.is_prerelease }}
         shell: bash
         run: |
-          DOMAIN=$(python -c "import json, glob; print(json.load(open(glob.glob('custom_components/*/manifest.json')[0]))['domain'])")
           prerelease_arg=""
           if [ "$IS_PRERELEASE" = "true" ]; then
             prerelease_arg="--prerelease"
           fi
           
+          files_to_upload=()
+          if [ -f "switch-ha.nro" ]; then
+            files_to_upload+=("switch-ha.nro")
+          fi
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" \
               --title "Release $VERSION" \
               --notes-file "release_body.md" \
               --draft=false \
               $prerelease_arg
-            gh release upload "$TAG" "$DOMAIN.zip" --clobber
+            if [ ${#files_to_upload[@]} -gt 0 ]; then
+              gh release upload "$TAG" "${files_to_upload[@]}" --clobber
+            fi
           else
             gh release create "$TAG" \
               --target "${{ github.ref_name }}" \
               --title "Release $VERSION" \
               --notes-file "release_body.md" \
               $prerelease_arg \
-              "$DOMAIN.zip"
+              "${files_to_upload[@]}"
           fi
 
- 
       - name: Post-Release Dev Bump
         run: |
           git config --global user.name "github-actions[bot]"
@@ -286,20 +277,4 @@ jobs:
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           git tag -d "$TAG" 2>/dev/null || true
           git push --delete origin "$TAG" 2>/dev/null || true
-      - name: Delete Component Artifact
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.runId,
-            });
-            const target = artifacts.artifacts.find(a => a.name === "updated-components");
-            if (target) {
-              await github.rest.actions.deleteArtifact({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                artifact_id: target.id,
-              });
-            }
+
