@@ -40,3 +40,4 @@ typedef struct {
 
 void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *config, SensorSnapshot *snapshot, bool force);
 void mqtt_publish_state(AppState *state, int fd, const AppConfig *config, const char *status);
+void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, char *ams_ver, size_t ams_size);

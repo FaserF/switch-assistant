@@ -502,6 +502,93 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         title_cache_build_json_games_attr(games_attr, sizeof(games_attr), 8);
         mqtt_send_publish(fd, attr_top, games_attr, true);
     }
+void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, char *ams_ver, size_t ams_size) {
+    if (fw_ver && fw_size > 0) snprintf(fw_ver, fw_size, "Unknown");
+    if (ams_ver && ams_size > 0) snprintf(ams_ver, ams_size, "Unknown");
+
+    bool setsys_needed_close = false;
+    if (!state || !state->svc_setsys_ready) {
+        if (R_SUCCEEDED(setsysInitialize())) {
+            setsys_needed_close = true;
+            if (state) state->svc_setsys_ready = true;
+        }
+    }
+
+    SetSysFirmwareVersion fw;
+    memset(&fw, 0, sizeof(fw));
+    if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
+        if (fw.display_version[0] != '\0') {
+            const char *pipe = strchr(fw.display_version, '|');
+            if (pipe) {
+                if (fw_ver && fw_size > 0) {
+                    size_t fw_len = (size_t)(pipe - fw.display_version);
+                    if (fw_len >= fw_size) fw_len = fw_size - 1;
+                    memcpy(fw_ver, fw.display_version, fw_len);
+                    fw_ver[fw_len] = '\0';
+                }
+                const char *ams_ptr = strstr(pipe, "AMS ");
+                if (!ams_ptr) ams_ptr = strstr(pipe, "AMS");
+                if (ams_ptr) {
+                    ams_ptr += (strncmp(ams_ptr, "AMS ", 4) == 0) ? 4 : 3;
+                    if (ams_ver && ams_size > 0) {
+                        size_t idx = 0;
+                        while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && idx < ams_size - 1) {
+                            ams_ver[idx] = ams_ptr[idx];
+                            idx++;
+                        }
+                        ams_ver[idx] = '\0';
+                    }
+                }
+            } else {
+                if (fw_ver && fw_size > 0) {
+                    snprintf(fw_ver, fw_size, "%s", fw.display_version);
+                }
+            }
+        } else if (fw.major != 0) {
+            if (fw_ver && fw_size > 0) {
+                snprintf(fw_ver, fw_size, "%u.%u.%u", fw.major, fw.minor, fw.micro);
+            }
+        }
+    }
+
+    if (setsys_needed_close && (!state || !state->svc_setsys_ready)) {
+        setsysExit();
+    }
+
+    // Try spl service for Atmosphere/Exosphere version if ams_ver is still Unknown
+    if (ams_ver && strcmp(ams_ver, "Unknown") == 0) {
+        if (R_SUCCEEDED(splInitialize())) {
+            u64 exosphere_ver = 0;
+            if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
+                u32 major = 0, minor = 0, micro = 0;
+                if ((exosphere_ver >> 24) & 0xFF) {
+                    major = (exosphere_ver >> 24) & 0xFF;
+                    minor = (exosphere_ver >> 16) & 0xFF;
+                    micro = (exosphere_ver >> 8) & 0xFF;
+                } else {
+                    major = (exosphere_ver >> 16) & 0xFF;
+                    minor = (exosphere_ver >> 8) & 0xFF;
+                    micro = exosphere_ver & 0xFF;
+                }
+                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+            } else if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65001, &exosphere_ver)) && exosphere_ver > 0) {
+                u32 major = 0, minor = 0, micro = 0;
+                if ((exosphere_ver >> 24) & 0xFF) {
+                    major = (exosphere_ver >> 24) & 0xFF;
+                    minor = (exosphere_ver >> 16) & 0xFF;
+                    micro = (exosphere_ver >> 8) & 0xFF;
+                } else {
+                    major = (exosphere_ver >> 16) & 0xFF;
+                    minor = (exosphere_ver >> 8) & 0xFF;
+                    micro = exosphere_ver & 0xFF;
+                }
+                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+            }
+            splExit();
+        }
+    }
+}
+
     {
         char update_top[192];
         char ams_update_top[192];
@@ -510,48 +597,7 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
 
         char fw_ver[64] = "Unknown";
         char ams_ver[64] = "Unknown";
-
-        if (state->svc_setsys_ready) {
-            SetSysFirmwareVersion fw;
-            if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
-                if (fw.display_version[0] != '\0') {
-                    // display_version format under Atmosphere: "18.1.0|AMS 1.7.1|E" or "18.1.0"
-                    const char *pipe = strchr(fw.display_version, '|');
-                    if (pipe) {
-                        size_t fw_len = (size_t)(pipe - fw.display_version);
-                        if (fw_len >= sizeof(fw_ver)) fw_len = sizeof(fw_ver) - 1;
-                        memcpy(fw_ver, fw.display_version, fw_len);
-                        fw_ver[fw_len] = '\0';
-
-                        const char *ams_ptr = strstr(pipe, "AMS ");
-                        if (ams_ptr) {
-                            ams_ptr += 4;
-                            size_t idx = 0;
-                            while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && idx < sizeof(ams_ver) - 1) {
-                                ams_ver[idx] = ams_ptr[idx];
-                                idx++;
-                            }
-                            ams_ver[idx] = '\0';
-                        }
-                    } else {
-                        snprintf(fw_ver, sizeof(fw_ver), "%s", fw.display_version);
-                    }
-                } else if (fw.major != 0) {
-                    snprintf(fw_ver, sizeof(fw_ver), "%u.%u.%u", fw.major, fw.minor, fw.micro);
-                }
-            }
-        }
-
-        // Fallback or override from splGetConfig(65000) for Exosphere/Atmosphere version
-        if (strcmp(ams_ver, "Unknown") == 0) {
-            u64 exosphere_ver = 0;
-            if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
-                u32 major = (exosphere_ver >> 24) & 0xFF;
-                u32 minor = (exosphere_ver >> 16) & 0xFF;
-                u32 micro = (exosphere_ver >> 8) & 0xFF;
-                snprintf(ams_ver, sizeof(ams_ver), "%u.%u.%u", major, minor, micro);
-            }
-        }
+        mqtt_get_system_versions(state, fw_ver, sizeof(fw_ver), ams_ver, sizeof(ams_ver));
 
         char update_payload[256];
         snprintf(update_payload, sizeof(update_payload),

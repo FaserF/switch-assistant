@@ -198,6 +198,7 @@ typedef enum {
     OptionalService_Audctl,
     OptionalService_Pminfo,
     OptionalService_Setsys,
+    OptionalService_Spl,
     OptionalService_Ts,
     OptionalService_Nifm,
 } OptionalService;
@@ -227,6 +228,9 @@ static void optional_init_thread(void *arg) {
                 break;
             case OptionalService_Setsys:
                 rc = setsysInitialize();
+                break;
+            case OptionalService_Spl:
+                rc = splInitialize();
                 break;
             case OptionalService_Ts:
                 rc = tsInitialize();
@@ -311,6 +315,9 @@ static void init_optional_services(AppState *state) {
     g_setsys_init_result = init_service_with_timeout("setsys", OptionalService_Setsys);
     state->svc_setsys_ready = R_SUCCEEDED(g_setsys_init_result);
     append_log_result("setsys_init", g_setsys_init_result);
+
+    g_spl_init_result = init_service_with_timeout("spl", OptionalService_Spl);
+    append_log_result("spl_init", g_spl_init_result);
 
     g_ts_init_result = init_service_with_timeout("ts", OptionalService_Ts);
     state->svc_ts_ready = R_SUCCEEDED(g_ts_init_result);

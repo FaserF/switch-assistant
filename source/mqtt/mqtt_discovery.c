@@ -23,46 +23,7 @@ static void get_system_device_info(AppState *state, char *mac_str, size_t mac_si
     if (fw_str && fw_size > 0) {
         char fw_ver[64] = "Unknown";
         char ams_ver[64] = "Unknown";
-
-        if (state && state->svc_setsys_ready) {
-            SetSysFirmwareVersion fw;
-            if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
-                if (fw.display_version[0] != '\0') {
-                    const char *pipe = strchr(fw.display_version, '|');
-                    if (pipe) {
-                        size_t fw_len = (size_t)(pipe - fw.display_version);
-                        if (fw_len >= sizeof(fw_ver)) fw_len = sizeof(fw_ver) - 1;
-                        memcpy(fw_ver, fw.display_version, fw_len);
-                        fw_ver[fw_len] = '\0';
-
-                        const char *ams_ptr = strstr(pipe, "AMS ");
-                        if (ams_ptr) {
-                            ams_ptr += 4;
-                            size_t idx = 0;
-                            while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && idx < sizeof(ams_ver) - 1) {
-                                ams_ver[idx] = ams_ptr[idx];
-                                idx++;
-                            }
-                            ams_ver[idx] = '\0';
-                        }
-                    } else {
-                        snprintf(fw_ver, sizeof(fw_ver), "%s", fw.display_version);
-                    }
-                } else if (fw.major != 0) {
-                    snprintf(fw_ver, sizeof(fw_ver), "%u.%u.%u", fw.major, fw.minor, fw.micro);
-                }
-            }
-        }
-
-        if (strcmp(ams_ver, "Unknown") == 0) {
-            u64 exosphere_ver = 0;
-            if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
-                u32 major = (exosphere_ver >> 24) & 0xFF;
-                u32 minor = (exosphere_ver >> 16) & 0xFF;
-                u32 micro = (exosphere_ver >> 8) & 0xFF;
-                snprintf(ams_ver, sizeof(ams_ver), "%u.%u.%u", major, minor, micro);
-            }
-        }
+        mqtt_get_system_versions(state, fw_ver, sizeof(fw_ver), ams_ver, sizeof(ams_ver));
 
         if (strcmp(ams_ver, "Unknown") != 0 && strcmp(fw_ver, "Unknown") != 0) {
             snprintf(fw_str, fw_size, "%s (AMS %s)", fw_ver, ams_ver);
