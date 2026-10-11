@@ -33,7 +33,7 @@ static void get_system_device_info(AppState *state, char *mac_str, size_t mac_si
 
 static void build_device_json_snippet(AppState *state, const AppConfig *config, const char *safe_id, char *out_dev, size_t out_size) {
     char mac[32] = "";
-    char sw_version[96] = "";
+    char sw_version[160] = "";
     char avty_top[192] = "";
     get_system_device_info(state, mac, sizeof(mac), sw_version, sizeof(sw_version));
     mqtt_availability_topic(config, avty_top, sizeof(avty_top));
