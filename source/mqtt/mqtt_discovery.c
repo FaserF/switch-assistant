@@ -632,6 +632,12 @@ void mqtt_clear_old_discovery_topics(AppState *state, int fd, const AppConfig *c
         NULL
     };
 
+    static bool s_already_cleared = false;
+    if (s_already_cleared) {
+        return;
+    }
+    s_already_cleared = true;
+
     for (int p_idx = 0; prefixes[p_idx] != NULL; p_idx++) {
         const char *disc_prefix = prefixes[p_idx];
         if (!disc_prefix || !disc_prefix[0]) continue;
@@ -658,6 +664,8 @@ void mqtt_clear_old_discovery_topics(AppState *state, int fd, const AppConfig *c
                          old_ids[p],
                          old_entities[e].sensor);
                 mqtt_send_publish(fd, old_topic, "", true);
+
+                svcSleepThread(5ULL * 1000ULL * 1000ULL); // 5ms pacing to prevent socket buffer exhaustion
             }
         }
     }
