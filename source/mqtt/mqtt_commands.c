@@ -668,6 +668,7 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     char payload[NOTIFY_TEXT_MAX];
     memcpy(payload, buffer + pos, (size_t) payload_len);
     payload[payload_len] = '\0';
+    mqtt_trim_text(payload);
 
     char command_topic[SHA_MAX_TOPIC + 32];
     char dev_cmd_topic[192];
