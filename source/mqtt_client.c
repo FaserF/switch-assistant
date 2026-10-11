@@ -248,7 +248,6 @@ static void mqtt_loop(void *arg) {
 
             mutexLock(&state->lock);
             should_exit = state->exit_requested;
-            power_sleeping = state->power_sleeping;
             bool sensor_publish_requested = state->sensor_publish_requested;
             if (sensor_publish_requested) {
                 state->sensor_publish_requested = false;
