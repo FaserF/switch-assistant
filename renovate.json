@@ -1,5 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "forkProcessing": "enabled",
   "extends": [
     "config:recommended",
     ":rebaseStalePrs",
@@ -13,11 +14,6 @@
       "matchCurrentVersion": "!/^0/",
       "automerge": true
     }
-  ],
-  "python": {
-    "enabled": true
-  },
-  "github-actions": {
-    "enabled": true
-  }
+  ]
 }
+
