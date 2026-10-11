@@ -611,7 +611,7 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
     }
     {
         FsFileSystem user_fs;
-        if (R_SUCCEEDED(fsOpenBisFileSystem(&user_fs, FsBisPartitionId_UserData, ""))) {
+        if (R_SUCCEEDED(fsOpenBisFileSystem(&user_fs, FsBisPartitionId_User, ""))) {
             s64 user_free_bytes = 0;
             s64 user_total_bytes = 0;
             if (R_SUCCEEDED(fsFsGetFreeSpace(&user_fs, "/", &user_free_bytes))) {
