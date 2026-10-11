@@ -261,8 +261,10 @@ int title_cache_get_max_players(u64 application_id, const char *name) {
     const char *games_8p[] = {
         "Smash Bros", "Super Smash", "Bomberman", "Super Bomberman", "1-2-Switch",
         "1-2 Switch", "Everybody 1-2", "Runbow", "Knight Squad", "Killer Queen",
-        "TowerFall", "Pico Park", "WarioWare", "Gang Beasts", "Just Dance",
-        "Virtua Tennis", "Mario Strikers", "Super Mario Strikers", "Death Squared"
+        "TowerFall", "Tower Fall", "Pico Park", "PicoPark", "WarioWare", "Gang Beasts", "Just Dance",
+        "Virtua Tennis", "Mario Strikers", "Super Mario Strikers", "Death Squared",
+        "Aeolis Tournament", "Bulanci", "Rover Wars", "Sky Gamblers", "Splatoon",
+        "Shredder's Revenge", "Party Golf", "ClusterPuck", "8 Player", "8-Player", "8 Players"
     };
     for (size_t i = 0; i < sizeof(games_8p) / sizeof(games_8p[0]); ++i) {
         if (case_str_search(name, games_8p[i]) != NULL) {
@@ -274,13 +276,30 @@ int title_cache_get_max_players(u64 application_id, const char *name) {
         "Mario Party", "Mario Tennis", "Mario Golf", "Mario Kart", "Overcooked",
         "Moving Out", "Castle Crashers", "TMNT", "Teenage Mutant", "Streets of Rage",
         "Brawlhalla", "Rocket League", "Minecraft", "Rayman", "Borderlands",
-        "Diablo", "Sonic", "FIFA", "EA SPORTS", "FC 24", "FC 25", "NBA 2K",
-        "WWE 2K", "Jackbox", "Stick Fight", "Boomerang Fu", "Worms", "SpeedRunners",
+        "Diablo", "Sonic", "FIFA", "EA SPORTS", "FC 24", "FC 25", "NBA",
+        "WWE", "NFL", "Jackbox", "Stick Fight", "Boomerang Fu", "Worms", "SpeedRunners",
         "Ultimate Chicken", "Trine", "Heave Ho", "Hidden in Plain", "Lego",
         "Monopoly", "Uno", "Trivial Pursuit", "Carnival Games", "Switch Sports",
         "Nintendo Switch Sports", "Party", "Strikers", "Super Mario 3D World",
         "Kirby Star Allies", "Kirby", "Brawl", "SpongeBob", "Flat Heroes",
-        "Rubber Bandits", "Spelunky", "Risk of Rain", "Lovers in a Dangerous"
+        "Rubber Bandits", "Spelunky", "Risk of Rain", "Lovers in a Dangerous",
+        "Animal Bomber", "NUMAN ATHLETICS", "THE TIN STAR", "Black and White Bushido",
+        "BOMBFEST", "Chalk Dash Carnival", "Chapeau", "Circuit Superstars",
+        "Cube Creator X", "Doggie Ninja", "FUN! FUN! Animal Park", "Horizon Chase",
+        "HYPERCHARGE", "Inspector Gadget", "Jamestown", "JDM Racing", "Jujutsu Kaisen",
+        "Moorhuhn Kart", "MY HERO ONE'S JUSTICE", "NBA Playgrounds", "NCL: USA Bowl",
+        "Pixel Family Fun", "Pocket Mini Golf", "Professor Rubik", "Road to Ballhalla",
+        "Run Box Run", "Simple Mini Golf", "Slots of Poker", "Super Korotama",
+        "Super Tennis Blast", "SuperDuck", "Them Bombs", "Theme Park Jam",
+        "This Means Warp", "Tokyo Cooking", "Unruly Heroes", "Wild Card Football",
+        "Winter Sports Games", "Wizards Tourney", "Worlds of Magic", "Broforce",
+        "Tools Up", "Conduct Together", "Unrailed", "For the King", "Magicka",
+        "Nine Parchments", "Full Metal Furies", "Gauntlet", "Marvel Ultimate Alliance",
+        "Cat Quest", "River City", "Scott Pilgrim", "Capcom Beat", "Alien Hominid",
+        "Crawl", "Screencheat", "Astro Bears", "Timberman", "Duck Game", "Nidhogg",
+        "Lethal League", "Marooners", "Party Panic", "Cake Bash", "Air Hockey",
+        "Mini Golf", "Bowling", "Darts", "Billiards", "3 Card Poker", "Kart",
+        "4 Player", "4-Player", "4 Players", "Olympic Games"
     };
     for (size_t i = 0; i < sizeof(games_4p) / sizeof(games_4p[0]); ++i) {
         if (case_str_search(name, games_4p[i]) != NULL) {
@@ -292,11 +311,19 @@ int title_cache_get_max_players(u64 application_id, const char *name) {
         "Odyssey", "Super Mario Odyssey", "Snipperclips", "Cuphead", "It Takes Two",
         "Unravel", "Portal 2", "Street Fighter", "Mortal Kombat", "Dragon Ball",
         "Tekken", "Guilty Gear", "King of Fighters", "Skullgirls", "Arms",
-        "Pokemon", "Pokken", "Luigi's Mansion", "Pikmin", "Donkey Kong",
+        "Pokemon", "Pokémon", "Pokken", "Pokkén", "Luigi's Mansion", "Pikmin", "Donkey Kong",
         "Tropical Freeze", "Captain Toad", "Warriors", "Hyrule", "Fire Emblem",
-        "Children of Morta", "Haven", "A Way Out", "Broforce", "Gungeon",
-        "Guacamelee", "Terraria", "Untitled Goose", "Duel", "Versus", " VS ",
-        "Bros", "Fighter", "Rumble", "Coop", "Co-op", "Team", "Two", "2 Player"
+        "Children of Morta", "Haven", "A Way Out", "Gungeon",
+        "Guacamelee", "Terraria", "Untitled Goose", "Duel", "Versus", " VS ", " vs ",
+        "Bros", "Fighter", "Fighting", "Rumble", "Coop", "Co-op", "Team", "Two", "2 Player",
+        "2-Player", "2 Players", "AngerForce", "LIGHTNING FIGHTERS", "Brain Meltdown",
+        "Darius Cozmic", "Dodgeball Academia", "Double Dragon", "Fightro", "Forklift Extreme",
+        "Galactic Wars", "GensokyoDefenders", "I Am The Hero", "Johnny Turbo", "Lesson Learned",
+        "LET'S THROOOW", "Musashi vs Cthulhu", "Ninjin", "QUByte Classics", "Rad Rodgers",
+        "Rage of the Dragons", "Rawr-Off", "Redgar", "SEA POWER", "Spirit Arena",
+        "Super Dodgeball Beats", "Twin Robots", "Uragun", "Shovel Knight", "Metal Slug",
+        "Contra", "Mega Man", "Hotline Miami", "Binding of Isaac", "Salt and Sanctuary",
+        "Wizard of Legend", "Battle", "Boxing", "Wrestling", "Tennis", "Chess", "Checkers"
     };
     for (size_t i = 0; i < sizeof(games_2p) / sizeof(games_2p[0]); ++i) {
         if (case_str_search(name, games_2p[i]) != NULL) {
@@ -455,7 +482,7 @@ void title_cache_build_json_options_array_for_players(char *out, size_t out_size
     size_t pos = 0;
     out[pos++] = '[';
 
-    append_json_escaped_string(out, out_size, &pos, "None");
+    append_json_escaped_string(out, out_size, &pos, "Home Menu");
 
     for (size_t i = 0; i < g_installed_game_count && pos + 4 < out_size; ++i) {
         if (g_installed_games[i].name[0] == '\0') {
@@ -481,6 +508,43 @@ void title_cache_build_json_options_array_for_players(char *out, size_t out_size
 
 void title_cache_build_json_options_array(char *out, size_t out_size) {
     title_cache_build_json_options_array_for_players(out, out_size, 1);
+}
+
+static void title_cache_build_json_games_list_for_attr(char *out, size_t out_size, int min_players) {
+    if (!out || out_size < 3) {
+        if (out && out_size > 0) out[0] = '\0';
+        return;
+    }
+
+    if (g_installed_game_count == 0) {
+        title_cache_refresh_installed_games();
+    }
+
+    size_t pos = 0;
+    out[pos++] = '[';
+
+    bool first = true;
+    for (size_t i = 0; i < g_installed_game_count && pos + 4 < out_size; ++i) {
+        if (g_installed_games[i].name[0] == '\0') {
+            continue;
+        }
+        if (min_players > 1 && g_installed_games[i].max_players < min_players) {
+            continue;
+        }
+        if (!first && pos + 1 < out_size) {
+            out[pos++] = ',';
+        }
+        first = false;
+        append_json_escaped_string(out, out_size, &pos, g_installed_games[i].name);
+    }
+
+    if (pos + 1 < out_size) {
+        out[pos++] = ']';
+    } else {
+        out[out_size - 2] = ']';
+        pos = out_size - 1;
+    }
+    out[pos] = '\0';
 }
 
 size_t title_cache_get_games_by_min_players(InstalledGame *out_games, size_t max_games, int min_players) {
@@ -516,10 +580,10 @@ void title_cache_build_json_games_attr(char *out, size_t out_size, int min_playe
         }
     }
 
-    char options_json[8192];
-    title_cache_build_json_options_array_for_players(options_json, sizeof(options_json), min_players);
+    char games_json[8192];
+    title_cache_build_json_games_list_for_attr(games_json, sizeof(games_json), min_players);
 
-    snprintf(out, out_size, "{\"count\":%zu,\"min_players\":%d,\"games\":%s}", count, min_players, options_json);
+    snprintf(out, out_size, "{\"count\":%zu,\"min_players\":%d,\"games\":%s}", count, min_players, games_json);
 }
 
 bool title_cache_find_application_id_by_name(const char *name, u64 *out_application_id) {
@@ -531,8 +595,8 @@ bool title_cache_find_application_id_by_name(const char *name, u64 *out_applicat
     snprintf(query, sizeof(query), "%s", name);
     trim_line(query);
 
-    if (strcasecmp(query, "None") == 0 || strcasecmp(query, "none") == 0 ||
-        strcasecmp(query, "Home") == 0 || strcasecmp(query, "home") == 0 ||
+    if (strcasecmp(query, "Home Menu") == 0 || strcasecmp(query, "Home") == 0 ||
+        strcasecmp(query, "None") == 0 || strcasecmp(query, "none") == 0 ||
         strcasecmp(query, "off") == 0 || strcasecmp(query, "idle") == 0) {
         return false;
     }

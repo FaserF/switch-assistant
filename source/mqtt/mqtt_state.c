@@ -387,7 +387,7 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         const char *current_game_name = (strcmp(snapshot->game_running, "ON") == 0 &&
                                          snapshot->current_game_name[0] != '\0' &&
                                          strcmp(snapshot->current_game_name, "none") != 0) ?
-                                         snapshot->current_game_name : "None";
+                                         snapshot->current_game_name : "Home Menu";
         mqtt_send_publish(fd, rem_act_top, current_game_name, true);
     }
     {
@@ -427,10 +427,10 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         const char *current_game_name = (strcmp(snapshot->game_running, "ON") == 0 &&
                                          snapshot->current_game_name[0] != '\0' &&
                                          strcmp(snapshot->current_game_name, "none") != 0) ?
-                                         snapshot->current_game_name : "None";
+                                         snapshot->current_game_name : "Home Menu";
 
         int current_players = 0;
-        if (strcmp(current_game_name, "None") != 0) {
+        if (strcmp(current_game_name, "Home Menu") != 0 && strcmp(current_game_name, "None") != 0) {
             u64 app_id = 0;
             title_cache_find_application_id_by_name(current_game_name, &app_id);
             current_players = title_cache_get_max_players(app_id, current_game_name);
@@ -439,9 +439,9 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         mqtt_send_publish(fd, mp_title_top, snapshot->current_game_name, true);
         mqtt_send_publish(fd, mp_src_top, current_game_name, true);
         mqtt_send_publish(fd, sel_game_top, current_game_name, true);
-        mqtt_send_publish(fd, sel_2p_top, current_players >= 2 ? current_game_name : "None", true);
-        mqtt_send_publish(fd, sel_4p_top, current_players >= 4 ? current_game_name : "None", true);
-        mqtt_send_publish(fd, sel_8p_top, current_players >= 8 ? current_game_name : "None", true);
+        mqtt_send_publish(fd, sel_2p_top, current_players >= 2 ? current_game_name : "Home Menu", true);
+        mqtt_send_publish(fd, sel_4p_top, current_players >= 4 ? current_game_name : "Home Menu", true);
+        mqtt_send_publish(fd, sel_8p_top, current_players >= 8 ? current_game_name : "Home Menu", true);
 
         // Publish player game counts & attributes
         char games_attr[8192];
@@ -487,18 +487,27 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
             if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
                 if (fw.display_version[0] != '\0') {
                     // display_version format under Atmosphere: "18.1.0|AMS 1.7.1|E" or "18.1.0"
-                    snprintf(fw_ver, sizeof(fw_ver), "%s", fw.display_version);
-                    const char *ams_ptr = strstr(fw.display_version, "AMS ");
-                    if (ams_ptr) {
-                        ams_ptr += 4;
-                        size_t idx = 0;
-                        while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && idx < sizeof(ams_ver) - 1) {
-                            ams_ver[idx] = ams_ptr[idx];
-                            idx++;
+                    const char *pipe = strchr(fw.display_version, '|');
+                    if (pipe) {
+                        size_t fw_len = (size_t)(pipe - fw.display_version);
+                        if (fw_len >= sizeof(fw_ver)) fw_len = sizeof(fw_ver) - 1;
+                        memcpy(fw_ver, fw.display_version, fw_len);
+                        fw_ver[fw_len] = '\0';
+
+                        const char *ams_ptr = strstr(pipe, "AMS ");
+                        if (ams_ptr) {
+                            ams_ptr += 4;
+                            size_t idx = 0;
+                            while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && idx < sizeof(ams_ver) - 1) {
+                                ams_ver[idx] = ams_ptr[idx];
+                                idx++;
+                            }
+                            ams_ver[idx] = '\0';
                         }
-                        ams_ver[idx] = '\0';
+                    } else {
+                        snprintf(fw_ver, sizeof(fw_ver), "%s", fw.display_version);
                     }
-                } else {
+                } else if (fw.major != 0) {
                     snprintf(fw_ver, sizeof(fw_ver), "%u.%u.%u", fw.major, fw.minor, fw.micro);
                 }
             }

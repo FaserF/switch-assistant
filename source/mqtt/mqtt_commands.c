@@ -19,9 +19,10 @@ static void handle_launch_game_payload(AppState *state, int fd, const AppConfig 
     }
     app_state_push_log(state, "Game launch request: %s", payload);
 
-    if (strcasecmp(payload, "None") == 0 || strcasecmp(payload, "none") == 0 ||
-        strcasecmp(payload, "off") == 0 || strcasecmp(payload, "Home") == 0) {
-        app_state_push_log(state, "Game selection None/off requested");
+    if (strcasecmp(payload, "Home Menu") == 0 || strcasecmp(payload, "Home") == 0 ||
+        strcasecmp(payload, "None") == 0 || strcasecmp(payload, "none") == 0 ||
+        strcasecmp(payload, "off") == 0 || strcasecmp(payload, "idle") == 0) {
+        app_state_push_log(state, "Game selection Home Menu/None/off requested");
         return;
     }
 
@@ -258,8 +259,32 @@ static void handle_firmware_update_command(AppState *state, int fd, const AppCon
         fclose(f);
     }
 
-    mqtt_write_notification_files("popup", "Firmware Update", "sdmc:/firmware cleaned & ready. Open Daybreak to install.");
-    app_state_push_log(state, "Firmware directory /firmware cleaned and ready for Daybreak");
+    u64 daybreak_id = 0;
+    bool launched = false;
+    if (title_cache_find_application_id_by_name("Daybreak", &daybreak_id) ||
+        title_cache_find_application_id_by_name("hbmenu", &daybreak_id) ||
+        title_cache_find_application_id_by_name("Homebrew Menu", &daybreak_id)) {
+        launched = title_cache_launch_game(state, daybreak_id);
+    }
+
+    if (!launched) {
+        // Attempt launching via Album / Photo Viewer takeover (0x010000000000100D)
+        Result rc = appletRequestLaunchApplication(0x010000000000100DULL, NULL);
+        if (R_FAILED(rc)) {
+            if (R_SUCCEEDED(appletInitialize())) {
+                rc = appletRequestLaunchApplication(0x010000000000100DULL, NULL);
+                appletExit();
+            }
+        }
+        launched = R_SUCCEEDED(rc);
+    }
+
+    if (launched) {
+        mqtt_write_notification_files("popup", "Firmware Update", "sdmc:/firmware ready. Launching Daybreak...");
+    } else {
+        mqtt_write_notification_files("popup", "Firmware Update", "sdmc:/firmware ready. Open Daybreak in Album/HBMenu.");
+    }
+    app_state_push_log(state, "Firmware directory /firmware cleaned and ready for Daybreak (launched=%d)", launched);
 }
 
 static void handle_command_payload(AppState *state, int fd, const AppConfig *config, const char *payload) {

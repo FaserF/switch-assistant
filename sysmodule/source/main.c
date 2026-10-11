@@ -18,6 +18,7 @@
 static Result g_socket_init_result = RESULT_NOT_INITIALIZED;
 static Result g_psm_init_result = RESULT_NOT_INITIALIZED;
 static Result g_spsm_init_result = RESULT_NOT_INITIALIZED;
+static Result g_spl_init_result = RESULT_NOT_INITIALIZED;
 static Result g_hid_init_result = RESULT_NOT_INITIALIZED;
 static Result g_lbl_init_result = RESULT_NOT_INITIALIZED;
 static Result g_audctl_init_result = RESULT_NOT_INITIALIZED;
@@ -68,6 +69,7 @@ void __appExit(void) {
     if (R_SUCCEEDED(g_lbl_init_result)) lblExit();
     if (R_SUCCEEDED(g_hid_init_result)) hidExit();
     screen_stream_stop();
+    if (R_SUCCEEDED(g_spl_init_result)) splExit();
     if (R_SUCCEEDED(g_spsm_init_result)) spsmExit();
     if (R_SUCCEEDED(g_psm_init_result)) psmExit();
     if (R_SUCCEEDED(g_socket_init_result)) socketExit();
@@ -123,6 +125,9 @@ static void init_core_services(AppState *state) {
     g_spsm_init_result = spsmInitialize();
     state->svc_spsm_ready = R_SUCCEEDED(g_spsm_init_result);
     append_log_result("spsm_init", g_spsm_init_result);
+
+    g_spl_init_result = splInitialize();
+    append_log_result("spl_init", g_spl_init_result);
 
     smExit();
     append_log("core service init done");

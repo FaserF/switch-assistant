@@ -151,11 +151,10 @@ static void publish_discovery_remote(int fd, const AppConfig *config) {
     }
 
     snprintf(payload, payload_size,
-             "{\"name\":\"%s Remote\",\"uniq_id\":\"%s_remote\",\"send_cmd_t\":\"%s\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
+             "{\"name\":\"Remote\",\"uniq_id\":\"%s_remote\",\"send_cmd_t\":\"%s\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
              "\"activity_cmd_t\":\"%s\",\"activity_stat_t\":\"%s\","
              "\"activity_list\":%s,"
              "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
-             config->device_name,
              safe_id,
              send_cmd_topic,
              cmd_set_topic,
@@ -199,13 +198,12 @@ static void publish_discovery_media_player(int fd, const AppConfig *config) {
     }
 
     snprintf(payload, payload_size,
-             "{\"name\":\"%s MediaPlayer\",\"uniq_id\":\"%s_media_player\","
+             "{\"name\":\"Media Player\",\"uniq_id\":\"%s_media_player\","
              "\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
              "\"vol_cmd_t\":\"%s\",\"vol_stat_t\":\"%s\","
              "\"source_cmd_t\":\"%s\",\"source_stat_t\":\"%s\","
              "\"source_list\":%s,"
              "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
-             config->device_name,
              safe_id,
              cmd_topic,
              stat_topic,
@@ -242,12 +240,11 @@ static void publish_discovery_select_game(int fd, const AppConfig *config) {
     }
 
     snprintf(payload, payload_size,
-             "{\"name\":\"%s Channel\",\"uniq_id\":\"%s_select_game\","
+             "{\"name\":\"Channel\",\"uniq_id\":\"%s_select_game\","
              "\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
              "\"options\":%s,"
              "\"ic\":\"mdi:television-box\","
              "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
-             config->device_name,
              safe_id,
              cmd_topic,
              stat_topic,
@@ -289,12 +286,11 @@ static void publish_discovery_select_game_players(int fd, const AppConfig *confi
     }
 
     snprintf(payload, payload_size,
-             "{\"name\":\"%s %s\",\"uniq_id\":\"%s_select_%s\","
+             "{\"name\":\"%s\",\"uniq_id\":\"%s_select_%s\","
              "\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
              "\"options\":%s,"
              "\"ic\":\"%s\","
              "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
-             config->device_name,
              name,
              safe_id,
              sensor,
@@ -322,8 +318,7 @@ static void publish_discovery_sensor_games_count(int fd, const AppConfig *config
     mqtt_sensor_attr_topic(config, sensor, attr_topic, sizeof(attr_topic));
 
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"%s %s\",\"uniq_id\":\"%s_%s\",\"stat_t\":\"%s\",\"json_attr_t\":\"%s\",\"ic\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
-             config->device_name,
+             "{\"name\":\"%s\",\"uniq_id\":\"%s_%s\",\"stat_t\":\"%s\",\"json_attr_t\":\"%s\",\"ic\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
              name,
              safe_id,
              sensor,
@@ -349,12 +344,11 @@ static void publish_discovery_update(int fd, const AppConfig *config) {
     mqtt_update_command_topic(config, cmd_top, sizeof(cmd_top));
 
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"%s Firmware\",\"uniq_id\":\"%s_firmware\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\","
+             "{\"name\":\"Firmware\",\"uniq_id\":\"%s_firmware\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\","
              "\"title\":\"Nintendo Switch Firmware\",\"dev_cla\":\"firmware\","
              "\"release_url\":\"https://github.com/THZoria/NX_Firmware/releases\","
              "\"entity_picture\":\"https://raw.githubusercontent.com/FaserF/switch-assistant/main/assets/icon.jpg\","
              "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
-             config->device_name,
              safe_id,
              state_top,
              cmd_top,
@@ -377,13 +371,12 @@ static void publish_discovery_atmosphere_update(int fd, const AppConfig *config)
     mqtt_atmosphere_update_command_topic(config, cmd_top, sizeof(cmd_top));
 
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"%s Atmosphère\",\"uniq_id\":\"%s_atmosphere\","
+             "{\"name\":\"Atmosphère\",\"uniq_id\":\"%s_atmosphere\","
              "\"stat_t\":\"%s\",\"cmd_t\":\"%s\","
              "\"title\":\"Atmosphère Custom Firmware\",\"dev_cla\":\"firmware\","
              "\"release_url\":\"https://github.com/Atmosphere-NX/Atmosphere/releases/latest\","
              "\"entity_picture\":\"https://avatars.githubusercontent.com/u/39328464\","
              "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
-             config->device_name,
              safe_id,
              state_top,
              cmd_top,
@@ -404,10 +397,9 @@ static void publish_discovery_event(int fd, const AppConfig *config) {
     mqtt_overlay_event_topic(config, state_top, sizeof(state_top));
 
     snprintf(payload, sizeof(payload),
-             "{\"name\":\"%s Overlay Action\",\"uniq_id\":\"%s_overlay_action\","
+             "{\"name\":\"Overlay Action\",\"uniq_id\":\"%s_overlay_action\","
              "\"stat_t\":\"%s\",\"event_types\":[\"toggle\",\"turn_on\",\"turn_off\",\"press\",\"call_service\",\"quick_action_1\",\"quick_action_2\",\"quick_action_3\",\"quick_action_4\"],"
              "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\"}}",
-             config->device_name,
              safe_id,
              state_top,
              safe_id,
@@ -430,7 +422,7 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     // Advanced battery telemetry -> disabled by default
     publish_discovery_sensor_disabled(fd, config, "sensor", "charger_type", "Charger Type", NULL, NULL, NULL, "diagnostic", "mdi:power-plug");
     publish_discovery_sensor_disabled(fd, config, "sensor", "battery_voltage", "Battery Voltage", "voltage", "mV", "measurement", "diagnostic", "mdi:sine-wave");
-    publish_discovery_sensor_disabled(fd, config, "sensor", "battery_temperature", "Battery Temperature", "temperature", "C", "measurement", "diagnostic", "mdi:thermometer");
+    publish_discovery_sensor_disabled(fd, config, "sensor", "battery_temperature", "Battery Temperature", "temperature", "°C", "measurement", "diagnostic", "mdi:thermometer");
     publish_discovery_sensor_disabled(fd, config, "sensor", "battery_health", "Battery Health", NULL, "%", "measurement", "diagnostic", "mdi:battery-heart-variant");
 
     if (state->svc_lbl_ready) {
@@ -476,7 +468,7 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     publish_discovery_event(fd, config);
     publish_discovery_sensor(fd, config, "binary_sensor", "docked", "Docked", "plug", NULL, NULL);
     if (state->svc_ts_ready) {
-        publish_discovery_sensor_disabled(fd, config, "sensor", "soc_temperature", "SoC Temperature", "temperature", "C", "measurement", "diagnostic", "mdi:thermometer-lines");
+        publish_discovery_sensor_disabled(fd, config, "sensor", "soc_temperature", "SoC Temperature", "temperature", "°C", "measurement", "diagnostic", "mdi:thermometer-lines");
     }
     publish_discovery_sensor_disabled(fd, config, "sensor", "uptime", "Uptime", "duration", "s", "total_increasing", "diagnostic", "mdi:clock-outline");
     if (state->svc_nifm_ready) {
