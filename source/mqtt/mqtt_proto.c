@@ -196,6 +196,7 @@ bool mqtt_socket_connect_to(AppState *state, const char *host, int port, int *ou
             setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
             struct timeval tv = {.tv_sec = 10, .tv_usec = 0};
             setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
             *out_fd = fd;
             freeaddrinfo(result);
             mqtt_set_status(state, true, true, false, "TCP OK: %s:%d", host, port);
@@ -213,12 +214,20 @@ bool mqtt_socket_connect_to(AppState *state, const char *host, int port, int *ou
 
 bool mqtt_send_packet(int fd, const unsigned char *buffer, size_t size) {
     size_t sent_total = 0;
+    int retries = 0;
     while (sent_total < size) {
         ssize_t sent = send(fd, buffer + sent_total, size - sent_total, 0);
-        if (sent <= 0) {
+        if (sent > 0) {
+            sent_total += (size_t) sent;
+            retries = 0;
+        } else if (sent < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (++retries > 50) { // allow up to ~500ms of buffer drainage
+                return false;
+            }
+            svcSleepThread(10ULL * 1000ULL * 1000ULL); // 10ms
+        } else {
             return false;
         }
-        sent_total += (size_t) sent;
     }
     return true;
 }

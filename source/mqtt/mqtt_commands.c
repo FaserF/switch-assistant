@@ -639,7 +639,14 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     pos += topic_len;
 
     int qos = (buffer[0] & 0x06) >> 1;
-    if (qos > 0) {
+    if (qos == 1) {
+        if (pos + 2 > size) {
+            return;
+        }
+        unsigned char puback[4] = {0x40, 0x02, buffer[pos], buffer[pos + 1]};
+        mqtt_send_packet(fd, puback, sizeof(puback));
+        pos += 2;
+    } else if (qos > 1) {
         pos += 2;
     }
     if (pos > size) {
@@ -651,7 +658,7 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
         packet_len = size;
     }
     int payload_len = packet_len - pos;
-    if (payload_len <= 0) {
+    if (payload_len < 0) {
         return;
     }
     if (payload_len >= NOTIFY_TEXT_MAX) {

@@ -196,7 +196,15 @@ static void mqtt_loop(void *arg) {
             if (poll_rc > 0 && (pfd.revents & POLLIN)) {
                 unsigned char buffer[MQTT_BUFFER];
                 int size = recv(fd, buffer, sizeof(buffer), 0);
-                if (size <= 0) {
+                if (size < 0) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+                        // Spurious wakeup, continue loop
+                        size = 0;
+                    } else {
+                        break;
+                    }
+                } else if (size == 0) {
+                    // Remote closed connection
                     break;
                 }
                 int offset = 0;
@@ -261,6 +269,7 @@ static void mqtt_loop(void *arg) {
         if (!power_sleeping) {
             app_state_push_log(state, "MQTT disconnected");
         }
+        svcSleepThread(1000ULL * 1000ULL * 1000ULL);
     }
 }
 
