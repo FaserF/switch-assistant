@@ -21,6 +21,12 @@ void app_state_refresh_device_info(AppState *state) {
 
     mutexLock(&state->lock);
 
+    // Invalidate cached AMS version if it accidentally matched the firmware version
+    if (state->cached_firmware_ver[0] != '\0' &&
+        strcmp(state->cached_atmosphere_ver, state->cached_firmware_ver) == 0) {
+        state->cached_atmosphere_ver[0] = '\0';
+    }
+
     // Always refresh firmware/AMS versions if either is missing or unknown
     if (state->cached_firmware_ver[0] == '\0' || strcmp(state->cached_firmware_ver, "Unknown") == 0 ||
         state->cached_atmosphere_ver[0] == '\0' || strcmp(state->cached_atmosphere_ver, "Unknown") == 0) {

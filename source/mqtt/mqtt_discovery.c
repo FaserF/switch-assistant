@@ -598,6 +598,7 @@ void mqtt_clear_old_discovery_topics(AppState *state, int fd, const AppConfig *c
     struct { const char *comp; const char *sensor; } old_entities[] = {
         {"sensor",        "diagnostics_logs"},
         {"sensor",        "diagnostics"},
+        {"sensor",        "battery_temperature"},
         {"button",        "close_game"},
         {"button",        "fetch_diagnostics_logs"},
         {"button",        "get_logs"},
@@ -606,21 +607,40 @@ void mqtt_clear_old_discovery_topics(AppState *state, int fd, const AppConfig *c
         {"button",        "shutdown"},
         {"switch",        "screen"},
         {"number",        "screen_brightness"},
+        {"binary_sensor", "player_1_wired"},
+        {"binary_sensor", "player_2_wired"},
+        {"binary_sensor", "player_3_wired"},
+        {"binary_sensor", "player_4_wired"},
+        {"binary_sensor", "player_5_wired"},
+        {"binary_sensor", "player_6_wired"},
+        {"binary_sensor", "player_7_wired"},
+        {"binary_sensor", "player_8_wired"},
         {NULL, NULL}
     };
 
-    const char *disc_prefix = config->mqtt_topic_prefix;
+    const char *prefixes[] = {
+        "homeassistant",
+        config->mqtt_topic_prefix,
+        NULL
+    };
 
-    for (int p = 0; old_ids[p] != NULL; p++) {
-        for (int e = 0; old_entities[e].comp != NULL; e++) {
-            char old_topic[256];
-            snprintf(old_topic, sizeof(old_topic),
-                     "%s/%s/%s/%s/config",
-                     disc_prefix,
-                     old_entities[e].comp,
-                     old_ids[p],
-                     old_entities[e].sensor);
-            mqtt_send_publish(fd, old_topic, "", true);
+    for (int p_idx = 0; prefixes[p_idx] != NULL; p_idx++) {
+        const char *disc_prefix = prefixes[p_idx];
+        if (!disc_prefix || !disc_prefix[0]) continue;
+        // Avoid duplicate clearance if config->mqtt_topic_prefix is already homeassistant
+        if (p_idx > 0 && strcmp(prefixes[0], disc_prefix) == 0) continue;
+
+        for (int p = 0; old_ids[p] != NULL; p++) {
+            for (int e = 0; old_entities[e].comp != NULL; e++) {
+                char old_topic[256];
+                snprintf(old_topic, sizeof(old_topic),
+                         "%s/%s/%s/%s/config",
+                         disc_prefix,
+                         old_entities[e].comp,
+                         old_ids[p],
+                         old_entities[e].sensor);
+                mqtt_send_publish(fd, old_topic, "", true);
+            }
         }
     }
 }

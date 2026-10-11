@@ -49,6 +49,7 @@ typedef struct {
     bool svc_spsm_ready;
     bool svc_pminfo_ready;
     bool svc_setsys_ready;
+    bool svc_spl_ready;
     bool svc_ts_ready;
     bool svc_nifm_ready;
     bool power_sleeping;

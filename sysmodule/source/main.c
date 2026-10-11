@@ -106,6 +106,7 @@ static void init_core_services(AppState *state) {
     LOG_I("sys", "spsmInitialize rc=0x%x", g_spsm_init_result);
 
     g_spl_init_result = splInitialize();
+    state->svc_spl_ready = R_SUCCEEDED(g_spl_init_result);
     LOG_I("sys", "splInitialize rc=0x%x", g_spl_init_result);
 
     LOG_I("sys", "Core service init completed");
@@ -285,9 +286,6 @@ static void init_optional_services(AppState *state) {
     g_setsys_init_result = init_service_with_timeout("setsys", OptionalService_Setsys);
     state->svc_setsys_ready = R_SUCCEEDED(g_setsys_init_result);
     LOG_I("sys", "setsys_init rc=0x%x", g_setsys_init_result);
-
-    g_spl_init_result = init_service_with_timeout("spl", OptionalService_Spl);
-    LOG_I("sys", "spl_init rc=0x%x", g_spl_init_result);
 
     g_ts_init_result = init_service_with_timeout("ts", OptionalService_Ts);
     state->svc_ts_ready = R_SUCCEEDED(g_ts_init_result);

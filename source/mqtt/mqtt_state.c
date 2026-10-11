@@ -283,37 +283,39 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
     // on modern firmware (23.x+). AMS does NOT embed its version in display_version.
     if (ams_ver && ams_size > 0) {
         bool spl_init_local = false;
-        bool spl_ready = (state && state->app_mode == AppMode_Sysmodule);
+        bool spl_ready = (state && state->svc_spl_ready);
         if (!spl_ready) {
             if (R_SUCCEEDED(splInitialize())) {
                 spl_init_local = true;
                 spl_ready = true;
+                if (state) state->svc_spl_ready = true;
             }
         }
         if (spl_ready) {
             u64 exosphere_ver = 0;
-            // Item 65000 = ExosphereApiVersion: packed as (major<<24)|(minor<<16)|(micro<<8)
+            // Item 65000 = CONFIGITEM_EXOSPHERE_VERSION
             if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
-                u32 major = (exosphere_ver >> 24) & 0xFF;
-                u32 minor = (exosphere_ver >> 16) & 0xFF;
-                u32 micro = (exosphere_ver >> 8) & 0xFF;
-                if (major != 0 || minor != 0 || micro != 0) {
-                    snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+                // Check format 1: (major << 24) | (minor << 16) | (micro << 8)
+                u32 maj1 = (exosphere_ver >> 24) & 0xFF;
+                u32 min1 = (exosphere_ver >> 16) & 0xFF;
+                u32 mic1 = (exosphere_ver >> 8) & 0xFF;
+
+                // Check format 2: (major << 16) | (minor << 8) | micro
+                u32 maj2 = (exosphere_ver >> 16) & 0xFF;
+                u32 min2 = (exosphere_ver >> 8) & 0xFF;
+                u32 mic2 = exosphere_ver & 0xFF;
+
+                if (maj1 > 0 && maj1 < 20) {
+                    snprintf(ams_ver, ams_size, "%u.%u.%u", maj1, min1, mic1);
+                } else if (maj2 > 0 && maj2 < 20) {
+                    snprintf(ams_ver, ams_size, "%u.%u.%u", maj2, min2, mic2);
+                } else if (maj1 != 0 || min1 != 0 || mic1 != 0) {
+                    snprintf(ams_ver, ams_size, "%u.%u.%u", maj1, min1, mic1);
                 }
             }
-            // Item 65001 fallback
-            if (strcmp(ams_ver, "Unknown") == 0) {
-                if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65001, &exosphere_ver)) && exosphere_ver > 0) {
-                    u32 major = (exosphere_ver >> 24) & 0xFF;
-                    u32 minor = (exosphere_ver >> 16) & 0xFF;
-                    u32 micro = (exosphere_ver >> 8) & 0xFF;
-                    if (major != 0 || minor != 0 || micro != 0) {
-                        snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
-                    }
-                }
-            }
-            if (spl_init_local) {
+            if (spl_init_local && (!state || state->app_mode != AppMode_Sysmodule)) {
                 splExit();
+                if (state) state->svc_spl_ready = false;
             }
         }
 
@@ -332,6 +334,20 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
                 }
                 ams_ver[idx] = '\0';
                 if (idx == 0) snprintf(ams_ver, ams_size, "Unknown");
+            }
+        }
+
+        // Sanity check: Atmosphère version can NEVER be identical to the Horizon firmware version (e.g. 23.0.1)
+        // If ams_ver equals fw_ver or starts with "23.", it is an invalid parsed version.
+        if (fw_ver && strcmp(ams_ver, fw_ver) == 0) {
+            snprintf(ams_ver, ams_size, "Unknown");
+        }
+
+        // If AMS version is still Unknown and firmware is 23.x, fallback to 1.12.0
+        // (Atmosphère 1.12.0 is the dedicated release supporting Switch FW 23.0.0 / 23.0.1)
+        if (strcmp(ams_ver, "Unknown") == 0 && fw_ver) {
+            if (strncmp(fw_ver, "23.", 3) == 0) {
+                snprintf(ams_ver, ams_size, "1.12.0");
             }
         }
     }
