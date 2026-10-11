@@ -306,6 +306,18 @@ static void handle_firmware_update_command(AppState *state, int fd, const AppCon
     app_state_push_log(state, "Firmware directory /firmware cleaned and ready for Daybreak (launched=%d)", launched);
 }
 
+static const char *case_str_find(const char *haystack, const char *needle) {
+    if (!haystack || !needle) return NULL;
+    if (needle[0] == '\0') return haystack;
+    size_t needle_len = strlen(needle);
+    for (size_t i = 0; haystack[i]; ++i) {
+        if (strncasecmp(haystack + i, needle, needle_len) == 0) {
+            return haystack + i;
+        }
+    }
+    return NULL;
+}
+
 static void handle_get_logs_command(AppState *state, int fd, const AppConfig *config, const char *payload) {
     LogLevel min_level = LOG_LEVEL_INFO;
     int max_lines = 100;
@@ -323,10 +335,10 @@ static void handle_get_logs_command(AppState *state, int fd, const AppConfig *co
             if (lines_req > 0 && lines_req <= 200) max_lines = lines_req;
         }
     } else if (payload && payload[0] != '\0') {
-        if (strcasestr(payload, "debug")) min_level = LOG_LEVEL_DEBUG;
-        else if (strcasestr(payload, "warn")) min_level = LOG_LEVEL_WARN;
-        else if (strcasestr(payload, "err")) min_level = LOG_LEVEL_ERROR;
-        else if (strcasestr(payload, "all")) min_level = LOG_LEVEL_DEBUG;
+        if (case_str_find(payload, "debug")) min_level = LOG_LEVEL_DEBUG;
+        else if (case_str_find(payload, "warn")) min_level = LOG_LEVEL_WARN;
+        else if (case_str_find(payload, "err")) min_level = LOG_LEVEL_ERROR;
+        else if (case_str_find(payload, "all")) min_level = LOG_LEVEL_DEBUG;
     }
 
     size_t buf_size = 32768;
@@ -582,6 +594,7 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     char sel_game_4p_cmd_topic[192];
     char sel_game_8p_cmd_topic[192];
     char update_cmd_topic[192];
+    char ams_update_cmd_topic[192];
     char br_cmd_topic[192];
     char bl_cmd_topic[192];
     char logs_cmd_topic[192];
