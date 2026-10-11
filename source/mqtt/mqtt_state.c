@@ -244,6 +244,7 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
     memset(&fw, 0, sizeof(fw));
     if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
         if (fw.display_version[0] != '\0') {
+            // Extract base firmware version only (before '|' or ' ' or '(' separators)
             const char *pipe = strchr(fw.display_version, '|');
             if (pipe) {
                 if (fw_ver && fw_size > 0) {
@@ -254,22 +255,17 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
                 }
             } else {
                 if (fw_ver && fw_size > 0) {
-                    snprintf(fw_ver, fw_size, "%s", fw.display_version);
-                }
-            }
-
-            const char *ams_ptr = strstr(fw.display_version, "AMS");
-            if (!ams_ptr) ams_ptr = strstr(fw.display_version, "ams");
-            if (ams_ptr) {
-                ams_ptr += 3;
-                while (*ams_ptr == ' ' || *ams_ptr == '_' || *ams_ptr == '-' || *ams_ptr == ':') ams_ptr++;
-                if (ams_ver && ams_size > 0) {
-                    size_t idx = 0;
-                    while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && ams_ptr[idx] != ')' && ams_ptr[idx] != '/' && idx < ams_size - 1) {
-                        ams_ver[idx] = ams_ptr[idx];
-                        idx++;
+                    // Take only the version number (up to first space/paren)
+                    const char *end = fw.display_version;
+                    while (*end && *end != ' ' && *end != '(' && *end != '|') end++;
+                    size_t fw_len = (size_t)(end - fw.display_version);
+                    if (fw_len == 0) {
+                        snprintf(fw_ver, fw_size, "%.63s", fw.display_version);
+                    } else {
+                        if (fw_len >= fw_size) fw_len = fw_size - 1;
+                        memcpy(fw_ver, fw.display_version, fw_len);
+                        fw_ver[fw_len] = '\0';
                     }
-                    ams_ver[idx] = '\0';
                 }
             }
         } else if (fw.major != 0) {
@@ -283,33 +279,64 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
         setsysExit();
     }
 
-    // Try spl service for Atmosphere/Exosphere version if ams_ver is still Unknown
-    if (ams_ver && (strcmp(ams_ver, "Unknown") == 0 || ams_ver[0] == '\0')) {
+    // Always query Exosphere/SPL first — this is the ONLY reliable AMS version source
+    // on modern firmware (23.x+). AMS does NOT embed its version in display_version.
+    if (ams_ver && ams_size > 0) {
         bool spl_init_local = false;
-        if (R_SUCCEEDED(splInitialize())) {
-            spl_init_local = true;
-        }
-        u64 exosphere_ver = 0;
-        if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
-            u32 major = (exosphere_ver >> 24) & 0xFF;
-            u32 minor = (exosphere_ver >> 16) & 0xFF;
-            u32 micro = (exosphere_ver >> 8) & 0xFF;
-            if (major != 0 || minor != 0 || micro != 0) {
-                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
-            }
-        } else if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65001, &exosphere_ver)) && exosphere_ver > 0) {
-            u32 major = (exosphere_ver >> 24) & 0xFF;
-            u32 minor = (exosphere_ver >> 16) & 0xFF;
-            u32 micro = (exosphere_ver >> 8) & 0xFF;
-            if (major != 0 || minor != 0 || micro != 0) {
-                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+        bool spl_ready = (state && state->app_mode == AppMode_Sysmodule);
+        if (!spl_ready) {
+            if (R_SUCCEEDED(splInitialize())) {
+                spl_init_local = true;
+                spl_ready = true;
             }
         }
-        if (spl_init_local && (!state || state->app_mode != AppMode_Sysmodule)) {
-            splExit();
+        if (spl_ready) {
+            u64 exosphere_ver = 0;
+            // Item 65000 = ExosphereApiVersion: packed as (major<<24)|(minor<<16)|(micro<<8)
+            if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
+                u32 major = (exosphere_ver >> 24) & 0xFF;
+                u32 minor = (exosphere_ver >> 16) & 0xFF;
+                u32 micro = (exosphere_ver >> 8) & 0xFF;
+                if (major != 0 || minor != 0 || micro != 0) {
+                    snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+                }
+            }
+            // Item 65001 fallback
+            if (strcmp(ams_ver, "Unknown") == 0) {
+                if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65001, &exosphere_ver)) && exosphere_ver > 0) {
+                    u32 major = (exosphere_ver >> 24) & 0xFF;
+                    u32 minor = (exosphere_ver >> 16) & 0xFF;
+                    u32 micro = (exosphere_ver >> 8) & 0xFF;
+                    if (major != 0 || minor != 0 || micro != 0) {
+                        snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+                    }
+                }
+            }
+            if (spl_init_local) {
+                splExit();
+            }
+        }
+
+        // Last-resort: parse AMS string from display_version (older firmware embedded it)
+        if (strcmp(ams_ver, "Unknown") == 0 && fw.display_version[0] != '\0') {
+            const char *ams_ptr = strstr(fw.display_version, "AMS");
+            if (!ams_ptr) ams_ptr = strstr(fw.display_version, "ams");
+            if (ams_ptr) {
+                ams_ptr += 3;
+                while (*ams_ptr == ' ' || *ams_ptr == '_' || *ams_ptr == '-' || *ams_ptr == ':') ams_ptr++;
+                size_t idx = 0;
+                while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' &&
+                       ams_ptr[idx] != ')' && ams_ptr[idx] != '/' && idx < ams_size - 1) {
+                    ams_ver[idx] = ams_ptr[idx];
+                    idx++;
+                }
+                ams_ver[idx] = '\0';
+                if (idx == 0) snprintf(ams_ver, ams_size, "Unknown");
+            }
         }
     }
 }
+
 
 void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *config, SensorSnapshot *snapshot, bool force) {
     char value[64];
