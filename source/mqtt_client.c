@@ -48,12 +48,6 @@ static void mqtt_loop(void *arg) {
             break;
         }
 
-        if (power_sleeping) {
-            mqtt_set_status(state, dns_ok, false, false, "sleeping");
-            svcSleepThread(1000 * 1000 * 1000ULL);
-            continue;
-        }
-
         if (host[0] == '\0' || prefix[0] == '\0') {
             mqtt_set_status(state, false, false, false, "MQTT incomplete config");
             svcSleepThread(1000 * 1000 * 1000ULL);
@@ -218,10 +212,6 @@ static void mqtt_loop(void *arg) {
             if (sensor_publish_requested || now - last_sensor_poll_ms >= SENSOR_POLL_INTERVAL_MS) {
                 mqtt_publish_switch_sensors(state, fd, &config, &sensor_snapshot, false);
                 last_sensor_poll_ms = now;
-            }
-
-            if (power_sleeping) {
-                break;
             }
 
             if (now - last_heartbeat_ms >= MQTT_HEARTBEAT_INTERVAL_MS) {

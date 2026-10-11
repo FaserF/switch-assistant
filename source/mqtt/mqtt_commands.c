@@ -129,6 +129,7 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
                 b += 0.10f;
                 if (b > 1.0f) b = 1.0f;
                 lblSetCurrentBrightnessSetting(b);
+                lblApplyCurrentBrightnessSettingToBacklight();
                 mutexLock(&state->lock);
                 state->sensor_publish_requested = true;
                 mutexUnlock(&state->lock);
@@ -141,6 +142,7 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
                 b -= 0.10f;
                 if (b < 0.0f) b = 0.0f;
                 lblSetCurrentBrightnessSetting(b);
+                lblApplyCurrentBrightnessSettingToBacklight();
                 mutexLock(&state->lock);
                 state->sensor_publish_requested = true;
                 mutexUnlock(&state->lock);
@@ -648,7 +650,8 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
             if (val < 0.0f) val = 0.0f;
             if (val > 100.0f) val = 100.0f;
             Result rc = lblSetCurrentBrightnessSetting(val / 100.0f);
-            LOG_I("mqtt", "Set brightness to %.1f%% (rc=0x%x)", val, rc);
+            Result rc_apply = lblApplyCurrentBrightnessSettingToBacklight();
+            LOG_I("mqtt", "Set brightness to %.1f%% (rc=0x%x, apply_rc=0x%x)", val, rc, rc_apply);
             char val_str[16];
             snprintf(val_str, sizeof(val_str), "%.0f", val);
             char br_stat_top[192];

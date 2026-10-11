@@ -142,7 +142,7 @@ static void power_guard_thread_main(void *arg) {
             last_sleeping = sleeping;
         }
 
-        svcSleepThread(sleeping ? 1000ULL * 1000ULL * 1000ULL : 500ULL * 1000ULL * 1000ULL);
+        svcSleepThread(1000ULL * 1000ULL * 1000ULL);
     }
 }
 
