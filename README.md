@@ -145,6 +145,17 @@ data:
     - shutdown        # Powers off console
 ```
 
+### Diagnostics & Remote Log Retrieval
+Switch Assistant includes a full remote diagnostics and structured logging subsystem with real-time log export over MQTT:
+- **Button Entity (`button.nintendo_switch_fetch_diagnostics`)**: Pressing this button in Home Assistant triggers immediate collection and publishing of current sysmodule diagnostics and recent logs.
+- **Sensor Entity (`sensor.nintendo_switch_diagnostics`)**: Reflects console health state (`healthy`, `warning`, `error`) and exposes complete telemetry as JSON attributes (firmware version, Atmosphère version, MAC address, WiFi RSSI, battery stats, SoC temperature, RAM usage, storage space, and active service statuses).
+- **MQTT Query Support**: You can publish to `switch_ha/<client_id>/command` or `switch_ha/<client_id>/command/get_logs` with optional parameters:
+  ```json
+  {"command": "get_logs", "level": "warn", "lines": 50}
+  ```
+  Supported `level` filters: `all`, `debug`, `info`, `warn`, `error`.
+  The console immediately publishes structured diagnostic data and filtered log entries to `switch_ha/<client_id>/logs/response`.
+
 ### Media Player Entity
 The media player entity automatically reflects whether the Switch is actively playing a game (`playing`), on the home menu (`idle`), or asleep (`off`). It displays the current game as the media title, renders game box cover art (`entity_picture`), exposes Title ID & player capabilities via attributes, and allows direct volume slider control as well as source/game switching from standard media control cards.
 

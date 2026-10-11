@@ -1,9 +1,11 @@
 #include "title_cache.h"
+#include "logger.h"
 
 #include <switch.h>
 #include <switch/services/ns.h>
 #include <switch/nacp.h>
 #include <switch/services/applet.h>
+
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -242,4 +242,28 @@ void mqtt_backlight_state_topic(const AppConfig *config, char *topic, size_t top
     snprintf(topic, topic_size, "switch_ha/%s/backlight/state", safe_id);
 }
 
+void mqtt_diagnostics_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/diagnostics", safe_id);
+}
+
+void mqtt_diagnostics_attr_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/diagnostics/attributes", safe_id);
+}
+
+void mqtt_logs_response_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/logs/response", safe_id);
+}
+
+void mqtt_logs_command_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/command/get_logs", safe_id);
+}
+
 

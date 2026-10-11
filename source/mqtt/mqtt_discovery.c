@@ -127,6 +127,36 @@ static void publish_discovery_sensor_disabled(AppState *state, int fd, const App
     publish_discovery_sensor_ext(state, fd, config, component, sensor, name, device_class, unit, state_class, entity_category, icon, false);
 }
 
+static void publish_discovery_sensor_with_attr(AppState *state, int fd, const AppConfig *config, const char *sensor,
+                                               const char *name, const char *icon, const char *entity_category) {
+    char topic[256];
+    char state_topic_buf[192];
+    char attr_topic_buf[192];
+    char payload[MQTT_BUFFER];
+    char safe_id[80];
+    char dev_json[512];
+
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    build_device_json_snippet(state, config, safe_id, dev_json, sizeof(dev_json));
+    mqtt_discovery_topic(config, "sensor", sensor, topic, sizeof(topic));
+    mqtt_diagnostics_state_topic(config, state_topic_buf, sizeof(state_topic_buf));
+    mqtt_diagnostics_attr_topic(config, attr_topic_buf, sizeof(attr_topic_buf));
+
+    snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s\",\"uniq_id\":\"%s_%s\",\"stat_t\":\"%s\",\"json_attr_t\":\"%s\","
+             "\"ic\":\"%s\",\"ent_cat\":\"%s\",%s}",
+             name,
+             safe_id,
+             sensor,
+             state_topic_buf,
+             attr_topic_buf,
+             icon ? icon : "mdi:information",
+             entity_category ? entity_category : "diagnostic",
+             dev_json);
+
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
 static void publish_discovery_button(AppState *state, int fd, const AppConfig *config, const char *button, const char *name, const char *payload_press) {
     char topic[256];
     char command_topic[SHA_MAX_TOPIC + 32];
@@ -601,6 +631,8 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     }
     publish_discovery_button(state, fd, config, "close_game", "Close Game", "close_game");
     publish_discovery_button(state, fd, config, "launch_daybreak", "Launch Daybreak", "launch_daybreak");
+    publish_discovery_button(state, fd, config, "get_logs", "Fetch Diagnostics & Logs", "get_logs");
+    publish_discovery_sensor_with_attr(state, fd, config, "diagnostics", "Diagnostics & Logs", "mdi:clipboard-pulse-outline", "diagnostic");
     title_cache_refresh_installed_games();
     publish_discovery_remote(state, fd, config);
     publish_discovery_media_player(state, fd, config);

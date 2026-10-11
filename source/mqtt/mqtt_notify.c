@@ -140,6 +140,24 @@ bool mqtt_json_extract_string(const char *json, const char *key, char *out, size
     return used > 0;
 }
 
+bool mqtt_json_extract_int(const char *json, const char *key, int *out) {
+    if (!json || !key || !out) return false;
+    char pattern[40];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+
+    const char *pos = strstr(json, pattern);
+    if (!pos) return false;
+    pos += strlen(pattern);
+    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
+    if (*pos != ':') return false;
+    pos++;
+    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n' || *pos == '"') pos++;
+    if (!((*pos >= '0' && *pos <= '9') || *pos == '-')) return false;
+
+    *out = atoi(pos);
+    return true;
+}
+
 static void write_sanitized_value(FILE *file, const char *key, const char *value) {
     fprintf(file, "%s=", key);
     for (size_t i = 0; value[i]; ++i) {

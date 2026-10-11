@@ -1,5 +1,6 @@
 #include "app_state.h"
 #include "config.h"
+#include "logger.h"
 #include "mqtt_client.h"
 #include "screen_stream.h"
 
@@ -80,29 +81,8 @@ static u64 monotonic_ms(void) {
     return armTicksToNs(armGetSystemTick()) / 1000000ULL;
 }
 
-static void append_log(const char *message) {
-    FILE *file = fopen(LOG_PATH, "a");
-    if (!file) {
-        return;
-    }
-    fprintf(file, "%lu %s\n", monotonic_ms(), message);
-    fclose(file);
-}
-
-static void append_log_result(const char *name, Result rc) {
-    char line[96];
-    snprintf(line, sizeof(line), "%s=0x%x", name, rc);
-    append_log(line);
-}
-
 static void init_core_services(AppState *state) {
-    append_log("core service init start");
-
-    Result rc = smInitialize();
-    if (R_FAILED(rc)) {
-        append_log_result("sm_init", rc);
-        return;
-    }
+    LOG_I("sys", "Core service init started");
 
     SocketInitConfig socket_config = {
         .tcp_tx_buf_size = 0x8000,
@@ -116,20 +96,19 @@ static void init_core_services(AppState *state) {
         .bsd_service_type = BsdServiceType_System,
     };
     g_socket_init_result = socketInitialize(&socket_config);
-    append_log_result("socket_init", g_socket_init_result);
+    LOG_I("sys", "socketInitialize rc=0x%x", g_socket_init_result);
 
     g_psm_init_result = psmInitialize();
-    append_log_result("psm_init", g_psm_init_result);
+    LOG_I("sys", "psmInitialize rc=0x%x", g_psm_init_result);
 
     g_spsm_init_result = spsmInitialize();
     state->svc_spsm_ready = R_SUCCEEDED(g_spsm_init_result);
-    append_log_result("spsm_init", g_spsm_init_result);
+    LOG_I("sys", "spsmInitialize rc=0x%x", g_spsm_init_result);
 
     g_spl_init_result = splInitialize();
-    append_log_result("spl_init", g_spl_init_result);
+    LOG_I("sys", "splInitialize rc=0x%x", g_spl_init_result);
 
-    smExit();
-    append_log("core service init done");
+    LOG_I("sys", "Core service init completed");
 }
 
 static void power_guard_thread_main(void *arg) {
@@ -167,13 +146,13 @@ static void power_guard_thread_main(void *arg) {
 static void init_power_guard(AppState *state) {
     Result rc = threadCreate(&g_power_guard_thread, power_guard_thread_main, state, NULL, 0x4000, 0x2B, -2);
     if (R_FAILED(rc)) {
-        append_log_result("power_guard_create", rc);
+        LOG_E("sys", "threadCreate power_guard failed rc=0x%x", rc);
         return;
     }
     g_power_guard_thread_active = true;
     rc = threadStart(&g_power_guard_thread);
     if (R_FAILED(rc)) {
-        append_log_result("power_guard_start", rc);
+        LOG_E("sys", "threadStart power_guard failed rc=0x%x", rc);
         threadClose(&g_power_guard_thread);
         g_power_guard_thread_active = false;
     }
@@ -184,11 +163,9 @@ static void apply_startup_delay(const AppConfig *config) {
         return;
     }
 
-    char line[96];
-    snprintf(line, sizeof(line), "startup delay %d sec", config->startup_delay_seconds);
-    append_log(line);
+    LOG_I("sys", "Startup delay %d seconds starting", config->startup_delay_seconds);
     svcSleepThread((u64) config->startup_delay_seconds * 1000ULL * 1000ULL * 1000ULL);
-    append_log("startup delay done");
+    LOG_I("sys", "Startup delay completed");
 }
 
 typedef enum {
@@ -242,9 +219,7 @@ static void optional_init_thread(void *arg) {
 }
 
 static Result init_service_with_timeout(const char *label, OptionalService service) {
-    char line[96];
-    snprintf(line, sizeof(line), "starting %s", label);
-    append_log(line);
+    LOG_D("sys", "Starting service init: %s", label);
 
     OptionalInitTask *task = calloc(1, sizeof(*task));
     if (!task) {
@@ -284,46 +259,45 @@ static Result init_service_with_timeout(const char *label, OptionalService servi
         return init_rc;
     }
 
-    snprintf(line, sizeof(line), "%s init timed out", label);
-    append_log(line);
+    LOG_W("sys", "Service %s init timed out", label);
     return RESULT_OPTIONAL_TIMEOUT;
 }
 
 static void init_optional_services(AppState *state) {
-    append_log("optional service init start");
+    LOG_I("sys", "Optional service init start");
 
     g_hid_init_result = init_service_with_timeout("hid", OptionalService_Hid);
     state->svc_hid_ready = R_SUCCEEDED(g_hid_init_result);
-    append_log_result("hid_init", g_hid_init_result);
+    LOG_I("sys", "hid_init rc=0x%x", g_hid_init_result);
 
     g_lbl_init_result = init_service_with_timeout("lbl", OptionalService_Lbl);
     state->svc_lbl_ready = R_SUCCEEDED(g_lbl_init_result);
-    append_log_result("lbl_init", g_lbl_init_result);
+    LOG_I("sys", "lbl_init rc=0x%x", g_lbl_init_result);
 
     g_audctl_init_result = init_service_with_timeout("audctl", OptionalService_Audctl);
     state->svc_audctl_ready = R_SUCCEEDED(g_audctl_init_result);
-    append_log_result("audctl_init", g_audctl_init_result);
+    LOG_I("sys", "audctl_init rc=0x%x", g_audctl_init_result);
 
     g_pminfo_init_result = init_service_with_timeout("pminfo", OptionalService_Pminfo);
     state->svc_pminfo_ready = R_SUCCEEDED(g_pminfo_init_result);
-    append_log_result("pminfo_init", g_pminfo_init_result);
+    LOG_I("sys", "pminfo_init rc=0x%x", g_pminfo_init_result);
 
     g_setsys_init_result = init_service_with_timeout("setsys", OptionalService_Setsys);
     state->svc_setsys_ready = R_SUCCEEDED(g_setsys_init_result);
-    append_log_result("setsys_init", g_setsys_init_result);
+    LOG_I("sys", "setsys_init rc=0x%x", g_setsys_init_result);
 
     g_spl_init_result = init_service_with_timeout("spl", OptionalService_Spl);
-    append_log_result("spl_init", g_spl_init_result);
+    LOG_I("sys", "spl_init rc=0x%x", g_spl_init_result);
 
     g_ts_init_result = init_service_with_timeout("ts", OptionalService_Ts);
     state->svc_ts_ready = R_SUCCEEDED(g_ts_init_result);
-    append_log_result("ts_init", g_ts_init_result);
+    LOG_I("sys", "ts_init rc=0x%x", g_ts_init_result);
 
     g_nifm_init_result = init_service_with_timeout("nifm", OptionalService_Nifm);
     state->svc_nifm_ready = R_SUCCEEDED(g_nifm_init_result);
-    append_log_result("nifm_init", g_nifm_init_result);
+    LOG_I("sys", "nifm_init rc=0x%x", g_nifm_init_result);
 
-    append_log("optional service init done");
+    LOG_I("sys", "Optional service init completed");
 }
 
 static void write_heartbeat(AppState *state) {
@@ -371,16 +345,17 @@ int main(int argc, char **argv) {
     AppState state;
     app_state_init(&state);
     state.app_mode = AppMode_Sysmodule;
-    append_log("sysmodule boot");
+    logger_init(&state, LOG_PATH);
+    LOG_I("sys", "Switch Assistant Sysmodule Boot (Version %s)", SHA_APP_BUILD);
 
     if (!config_load(&state.config)) {
         snprintf(state.config_status, sizeof(state.config_status), "no config");
         app_state_push_log(&state, "No config, waiting");
-        append_log("config missing");
+        LOG_W("config", "Config file missing or invalid");
     } else {
         snprintf(state.config_status, sizeof(state.config_status), "loaded");
         app_state_push_log(&state, "Config loaded");
-        append_log("config loaded");
+        LOG_I("config", "Config loaded successfully");
     }
 
     apply_startup_delay(&state.config);
@@ -390,7 +365,7 @@ int main(int argc, char **argv) {
     init_power_guard(&state);
 
     mqtt_service_start(&state);
-    append_log("mqtt thread started");
+    LOG_I("mqtt", "MQTT worker thread launched");
 
     while (true) {
         AppConfig loaded;

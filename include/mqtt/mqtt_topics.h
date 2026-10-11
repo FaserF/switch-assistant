@@ -50,3 +50,9 @@ void mqtt_brightness_cmd_topic(const AppConfig *config, char *topic, size_t topi
 void mqtt_brightness_state_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_backlight_cmd_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_backlight_state_topic(const AppConfig *config, char *topic, size_t topic_size);
+
+void mqtt_diagnostics_state_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_diagnostics_attr_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_logs_response_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_logs_command_topic(const AppConfig *config, char *topic, size_t topic_size);
+

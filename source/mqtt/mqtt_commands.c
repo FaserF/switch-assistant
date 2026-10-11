@@ -2,7 +2,9 @@
 #include "mqtt/mqtt_notify.h"
 #include "mqtt/mqtt_proto.h"
 #include "mqtt/mqtt_topics.h"
+#include "logger.h"
 #include "title_cache.h"
+
 
 #include <switch.h>
 #include <switch/applets/libapplet.h>
@@ -304,28 +306,87 @@ static void handle_firmware_update_command(AppState *state, int fd, const AppCon
     app_state_push_log(state, "Firmware directory /firmware cleaned and ready for Daybreak (launched=%d)", launched);
 }
 
+static void handle_get_logs_command(AppState *state, int fd, const AppConfig *config, const char *payload) {
+    LogLevel min_level = LOG_LEVEL_INFO;
+    int max_lines = 100;
+
+    if (payload && payload[0] == '{') {
+        char lvl_str[32];
+        if (mqtt_json_extract_string(payload, "level", lvl_str, sizeof(lvl_str)) ||
+            mqtt_json_extract_string(payload, "filter", lvl_str, sizeof(lvl_str))) {
+            min_level = logger_parse_level(lvl_str);
+        }
+        int lines_req = 0;
+        if (mqtt_json_extract_int(payload, "lines", &lines_req) ||
+            mqtt_json_extract_int(payload, "max_lines", &lines_req) ||
+            mqtt_json_extract_int(payload, "count", &lines_req)) {
+            if (lines_req > 0 && lines_req <= 200) max_lines = lines_req;
+        }
+    } else if (payload && payload[0] != '\0') {
+        if (strcasestr(payload, "debug")) min_level = LOG_LEVEL_DEBUG;
+        else if (strcasestr(payload, "warn")) min_level = LOG_LEVEL_WARN;
+        else if (strcasestr(payload, "err")) min_level = LOG_LEVEL_ERROR;
+        else if (strcasestr(payload, "all")) min_level = LOG_LEVEL_DEBUG;
+    }
+
+    size_t buf_size = 32768;
+    char *buf = malloc(buf_size);
+    if (!buf) {
+        LOG_E("mqtt", "Failed to allocate buffer for logs export");
+        return;
+    }
+
+    size_t len = logger_dump_logs_json(state, config, buf, buf_size, min_level, max_lines);
+    if (len > 0) {
+        char resp_topic[192];
+        mqtt_logs_response_topic(config, resp_topic, sizeof(resp_topic));
+        mqtt_send_publish(fd, resp_topic, buf, false);
+
+        char diag_attr_topic[192];
+        mqtt_diagnostics_attr_topic(config, diag_attr_topic, sizeof(diag_attr_topic));
+        mqtt_send_publish(fd, diag_attr_topic, buf, true);
+
+        char diag_state_topic[192];
+        mqtt_diagnostics_state_topic(config, diag_state_topic, sizeof(diag_state_topic));
+        mqtt_send_publish(fd, diag_state_topic, "healthy", true);
+
+        LOG_I("mqtt", "Exported %zu bytes of logs & diagnostics (level=%s, max_lines=%d)", len, logger_level_name(min_level), max_lines);
+    }
+    free(buf);
+}
+
 static void handle_command_payload(AppState *state, int fd, const AppConfig *config, const char *payload) {
     if (!payload || payload[0] == '\0') {
         return;
     }
 
+    LOG_I("mqtt", "MQTT command received: %s", payload);
     app_state_push_log(state, "MQTT command: %s", payload);
 
-    if (strcasecmp(payload, "reboot") == 0) {
+    if (strcasecmp(payload, "get_logs") == 0 || strcasecmp(payload, "logs") == 0 ||
+        strcasecmp(payload, "diagnostics") == 0 || strncasecmp(payload, "get_logs ", 9) == 0 ||
+        (payload[0] == '{' && (strstr(payload, "get_logs") || strstr(payload, "diagnostics")))) {
+        handle_get_logs_command(state, fd, config, payload);
+    } else if (strcasecmp(payload, "reboot") == 0) {
         if (!state->svc_spsm_ready) {
+            LOG_W("mqtt", "Reboot unavailable: spsm not ready");
             app_state_push_log(state, "Reboot unavailable: spsm not ready");
             return;
         }
+        LOG_I("mqtt", "Reboot command accepted");
         app_state_push_log(state, "Reboot command accepted");
         spsmShutdown(true);
     } else if (strcasecmp(payload, "shutdown") == 0 || strcasecmp(payload, "poweroff") == 0) {
         if (!state->svc_spsm_ready) {
+            LOG_W("mqtt", "Shutdown unavailable: spsm not ready");
             app_state_push_log(state, "Shutdown unavailable: spsm not ready");
             return;
         }
+        LOG_I("mqtt", "Shutdown command accepted");
         app_state_push_log(state, "Shutdown command accepted");
         spsmShutdown(false);
     } else if (strcasecmp(payload, "sleep") == 0 || strcasecmp(payload, "standby") == 0) {
+        LOG_I("mqtt", "Sleep command accepted");
         app_state_push_log(state, "Sleep command accepted");
         Result rc = appletRequestToSleep();
         if (R_FAILED(rc)) {
@@ -521,9 +582,9 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     char sel_game_4p_cmd_topic[192];
     char sel_game_8p_cmd_topic[192];
     char update_cmd_topic[192];
-    char ams_update_cmd_topic[192];
     char br_cmd_topic[192];
     char bl_cmd_topic[192];
+    char logs_cmd_topic[192];
 
     snprintf(command_topic, sizeof(command_topic), "%s/command", config->mqtt_topic_prefix);
     mqtt_notification_topic(config, "popup", popup_topic, sizeof(popup_topic));
@@ -541,9 +602,12 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     mqtt_atmosphere_update_command_topic(config, ams_update_cmd_topic, sizeof(ams_update_cmd_topic));
     mqtt_brightness_cmd_topic(config, br_cmd_topic, sizeof(br_cmd_topic));
     mqtt_backlight_cmd_topic(config, bl_cmd_topic, sizeof(bl_cmd_topic));
+    mqtt_logs_command_topic(config, logs_cmd_topic, sizeof(logs_cmd_topic));
 
     if (strcmp(topic, command_topic) == 0) {
         handle_command_payload(state, fd, config, payload);
+    } else if (strcmp(topic, logs_cmd_topic) == 0) {
+        handle_get_logs_command(state, fd, config, payload);
     } else if (strcmp(topic, popup_topic) == 0) {
         handle_notification_payload(state, fd, config, topic, payload);
     } else if (strcmp(topic, send_cmd_topic) == 0) {
