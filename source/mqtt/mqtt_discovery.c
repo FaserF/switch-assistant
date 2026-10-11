@@ -197,7 +197,9 @@ static void publish_discovery_notify(AppState *state, int fd, const AppConfig *c
 
     snprintf(payload, sizeof(payload),
              "{\"name\":\"%s\",\"uniq_id\":\"%s_notify_%s\",\"cmd_t\":\"%s\","
-             "\"cmd_tpl\":\"{{ value }}\",%s}",
+             "\"cmd_tpl\":\"{\\\"message\\\":\\\"{{ message }}\\\",\\\"title\\\":\\\"{{ title | default('') }}\\\"}\","
+             "\"schema\":\"json\","
+             "\"ic\":\"mdi:bell-ring\",%s}",
              name,
              safe_id,
              mode,
@@ -239,13 +241,15 @@ static void publish_discovery_remote(AppState *state, int fd, const AppConfig *c
     }
 
     snprintf(payload, payload_size,
-             "{\"name\":\"Remote\",\"uniq_id\":\"%s_remote\",\"send_cmd_t\":\"%s\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
-             "\"activity_cmd_t\":\"%s\",\"activity_stat_t\":\"%s\","
-             "\"activity_list\":%s,%s}",
+             "{\"name\":\"Remote\",\"uniq_id\":\"%s_remote\","
+             "\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
+             "\"send_cmd_t\":\"%s\","
+             "\"act_cmd_t\":\"%s\",\"act_stat_t\":\"%s\","
+             "\"act_list\":%s,%s}",
              safe_id,
-             send_cmd_topic,
              cmd_set_topic,
              state_top,
+             send_cmd_topic,
              act_cmd_top,
              act_stat_top,
              options_json,
@@ -263,6 +267,7 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
     char vol_stat_top[192];
     char src_cmd_top[192];
     char src_stat_top[192];
+    char title_stat_top[192];
     char safe_id[80];
     char dev_json[512];
 
@@ -275,6 +280,7 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
     mqtt_media_player_volume_state_topic(config, vol_stat_top, sizeof(vol_stat_top));
     mqtt_media_player_source_cmd_topic(config, src_cmd_top, sizeof(src_cmd_top));
     mqtt_media_player_source_state_topic(config, src_stat_top, sizeof(src_stat_top));
+    mqtt_media_player_title_topic(config, title_stat_top, sizeof(title_stat_top));
 
     char options_json[16384];
     title_cache_build_json_options_array(options_json, sizeof(options_json));
@@ -289,8 +295,11 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
              "{\"name\":\"Media Player\",\"uniq_id\":\"%s_media_player\","
              "\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
              "\"vol_cmd_t\":\"%s\",\"vol_stat_t\":\"%s\","
-             "\"source_cmd_t\":\"%s\",\"source_stat_t\":\"%s\","
-             "\"source_list\":%s,%s}",
+             "\"src_cmd_t\":\"%s\",\"src_stat_t\":\"%s\","
+             "\"title_stat_t\":\"%s\","
+             "\"source_list\":%s,"
+             "\"dev_cla\":\"tv\","
+             "\"sup_feat\":[\"turn_on\",\"turn_off\",\"volume_set\",\"volume_step\",\"volume_mute\",\"select_source\"],%s}",
              safe_id,
              cmd_topic,
              stat_topic,
@@ -298,6 +307,7 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
              vol_stat_top,
              src_cmd_top,
              src_stat_top,
+             title_stat_top,
              options_json,
              dev_json);
 

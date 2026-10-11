@@ -328,30 +328,27 @@ Home Assistant creates a notify entity with a name similar to:
 notify.nintendo_switch_popup_notification
 ```
 
-Example Home Assistant action:
+Example Home Assistant automation / script action:
 
 ```yaml
 action: notify.send_message
 target:
   entity_id: notify.nintendo_switch_popup_notification
 data:
-  message: "Laundry finished"
+  title: "Laundry Done"
+  message: "The washing machine has finished"
 ```
 
-The MQTT notify integration currently forwards the message body to Switch Assistant. Home Assistant's `title`
-field is not included in that MQTT payload, so the popup title defaults to `Home Assistant` when using
-`notify.send_message`.
+The notification entity automatically receives both the `title` and `message` fields via Home Assistant's standard notification platform.
 
-To send a custom title, publish directly to the popup topic with either JSON:
+You can also send custom notifications via `mqtt.publish`:
 
 ```yaml
 action: mqtt.publish
 data:
   topic: switch_ha/<client_id>/notify/popup
-  payload: '{"title":"Laundry","message":"The washing machine has finished"}'
+  payload: '{"title":"Doorbell","message":"Someone is at the front door"}'
 ```
-
-or a two-line payload where the first line is the title and the second line is the message.
 
 The sysmodule writes the latest notification here:
 

@@ -353,6 +353,9 @@ static void handle_notification_payload(AppState *state, int fd, const AppConfig
     mqtt_trim_text(mode);
     mqtt_trim_text(title);
     mqtt_trim_text(message);
+    if (title[0] == '\0') {
+        snprintf(title, sizeof(title), "Home Assistant");
+    }
     if (message[0] == '\0') {
         mqtt_send_publish(fd, status_topic, "empty", false);
         return;
