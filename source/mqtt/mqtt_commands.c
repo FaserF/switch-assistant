@@ -647,18 +647,25 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
             float val = (float) atof(payload);
             if (val < 0.0f) val = 0.0f;
             if (val > 100.0f) val = 100.0f;
-            lblSetCurrentBrightnessSetting(val / 100.0f);
+            Result rc = lblSetCurrentBrightnessSetting(val / 100.0f);
+            LOG_I("mqtt", "Set brightness to %.1f%% (rc=0x%x)", val, rc);
+            char val_str[16];
+            snprintf(val_str, sizeof(val_str), "%.0f", val);
+            char br_stat_top[192];
+            mqtt_brightness_state_topic(config, br_stat_top, sizeof(br_stat_top));
+            mqtt_send_publish(fd, br_stat_top, val_str, true);
             mutexLock(&state->lock);
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
         }
     } else if (strcmp(topic, bl_cmd_topic) == 0) {
         if (state->svc_lbl_ready) {
-            if (strcasecmp(payload, "ON") == 0 || strcasecmp(payload, "true") == 0 || strcasecmp(payload, "1") == 0) {
-                lblSwitchBacklightOn(0);
-            } else {
-                lblSwitchBacklightOff(0);
-            }
+            bool on = (strcasecmp(payload, "ON") == 0 || strcasecmp(payload, "true") == 0 || strcasecmp(payload, "1") == 0);
+            Result rc = on ? lblSwitchBacklightOn(0) : lblSwitchBacklightOff(0);
+            LOG_I("mqtt", "Switch backlight %s (rc=0x%x)", on ? "ON" : "OFF", rc);
+            char bl_stat_top[192];
+            mqtt_backlight_state_topic(config, bl_stat_top, sizeof(bl_stat_top));
+            mqtt_send_publish(fd, bl_stat_top, on ? "ON" : "OFF", true);
             mutexLock(&state->lock);
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);

@@ -397,17 +397,26 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
 
     if (power_sleeping) {
         publish_if_changed(fd, config, snapshot, force, "backlight", snapshot->backlight, sizeof(snapshot->backlight), "OFF");
+        char bl_stat_top[192];
+        mqtt_backlight_state_topic(config, bl_stat_top, sizeof(bl_stat_top));
+        mqtt_send_publish(fd, bl_stat_top, "OFF", true);
     } else if (state->svc_lbl_ready) {
         float brightness = 0.0f;
         if (R_SUCCEEDED(lblGetCurrentBrightnessSetting(&brightness)) || R_SUCCEEDED(lblGetBrightnessSettingAppliedToBacklight(&brightness))) {
             snprintf(value, sizeof(value), "%.0f", (double) (brightness * 100.0f));
             publish_if_changed(fd, config, snapshot, force, "brightness", snapshot->brightness, sizeof(snapshot->brightness), value);
+            char br_stat_top[192];
+            mqtt_brightness_state_topic(config, br_stat_top, sizeof(br_stat_top));
+            mqtt_send_publish(fd, br_stat_top, value, true);
         }
 
         LblBacklightSwitchStatus backlight = LblBacklightSwitchStatus_Disabled;
         if (R_SUCCEEDED(lblGetBacklightSwitchStatus(&backlight))) {
-            publish_if_changed(fd, config, snapshot, force, "backlight", snapshot->backlight, sizeof(snapshot->backlight),
-                               backlight == LblBacklightSwitchStatus_Enabled || backlight == LblBacklightSwitchStatus_Enabling ? "ON" : "OFF");
+            const char *bl_val = (backlight == LblBacklightSwitchStatus_Enabled || backlight == LblBacklightSwitchStatus_Enabling) ? "ON" : "OFF";
+            publish_if_changed(fd, config, snapshot, force, "backlight", snapshot->backlight, sizeof(snapshot->backlight), bl_val);
+            char bl_stat_top[192];
+            mqtt_backlight_state_topic(config, bl_stat_top, sizeof(bl_stat_top));
+            mqtt_send_publish(fd, bl_stat_top, bl_val, true);
         }
     }
 
