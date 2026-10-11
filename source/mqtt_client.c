@@ -124,6 +124,7 @@ static void mqtt_loop(void *arg) {
         char update_cmd_topic[192];
         char ams_update_cmd_topic[192];
         char br_cmd_topic[192];
+        char bl_cmd_topic[192];
         char logs_cmd_topic[192];
         snprintf(command_topic, sizeof(command_topic), "%s/command", prefix);
         mqtt_remote_send_command_topic(&config, send_cmd_topic, sizeof(send_cmd_topic));

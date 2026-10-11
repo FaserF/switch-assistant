@@ -113,10 +113,8 @@ void logger_log_va(LogLevel level, const char *module, const char *fmt, va_list 
     size_t idx = g_log_head;
     g_log_ring[idx].uptime_s = uptime_s;
     g_log_ring[idx].level = level;
-    strncpy(g_log_ring[idx].module, module ? module : "core", LOG_MODULE_MAX - 1);
-    g_log_ring[idx].module[LOG_MODULE_MAX - 1] = '\0';
-    strncpy(g_log_ring[idx].message, message, LOG_MSG_MAX - 1);
-    g_log_ring[idx].message[LOG_MSG_MAX - 1] = '\0';
+    snprintf(g_log_ring[idx].module, sizeof(g_log_ring[idx].module), "%s", module ? module : "core");
+    snprintf(g_log_ring[idx].message, sizeof(g_log_ring[idx].message), "%s", message);
 
     g_log_head = (g_log_head + 1) % LOG_RING_CAPACITY;
     if (g_log_count < LOG_RING_CAPACITY) {
