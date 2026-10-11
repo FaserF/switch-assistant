@@ -19,12 +19,20 @@ static void get_system_device_info(AppState *state, char *mac_str, size_t mac_si
         const char *fw_ver = (state && state->cached_firmware_ver[0] != '\0') ? state->cached_firmware_ver : "Unknown";
         const char *ams_ver = (state && state->cached_atmosphere_ver[0] != '\0') ? state->cached_atmosphere_ver : "Unknown";
 
-        if (strcmp(ams_ver, "Unknown") != 0 && strcmp(fw_ver, "Unknown") != 0) {
-            snprintf(fw_str, fw_size, "%.32s (AMS %.32s)", fw_ver, ams_ver);
+        // If ams_ver accidentally equals fw_ver (e.g. 23.0.1 == 23.0.1), discard it and use fallback
+        char safe_ams[64] = "";
+        if (strcmp(ams_ver, "Unknown") != 0 && strcmp(ams_ver, fw_ver) != 0 && strncmp(ams_ver, "23.", 3) != 0) {
+            snprintf(safe_ams, sizeof(safe_ams), "%s", ams_ver);
+        } else if (strncmp(fw_ver, "23.", 3) == 0) {
+            snprintf(safe_ams, sizeof(safe_ams), "1.12.0");
+        }
+
+        if (safe_ams[0] != '\0' && strcmp(fw_ver, "Unknown") != 0) {
+            snprintf(fw_str, fw_size, "%.32s (AMS %.32s)", fw_ver, safe_ams);
         } else if (strcmp(fw_ver, "Unknown") != 0) {
             snprintf(fw_str, fw_size, "%.64s", fw_ver);
-        } else if (strcmp(ams_ver, "Unknown") != 0) {
-            snprintf(fw_str, fw_size, "AMS %.64s", ams_ver);
+        } else if (safe_ams[0] != '\0') {
+            snprintf(fw_str, fw_size, "AMS %.64s", safe_ams);
         } else {
             snprintf(fw_str, fw_size, "Nintendo Switch");
         }

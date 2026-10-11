@@ -663,13 +663,20 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
                  fw_ver, fw_ver);
         mqtt_send_publish(fd, update_top, update_payload, true);
 
+        char safe_ams_update[64] = "Unknown";
+        if (strcmp(ams_ver, "Unknown") != 0 && strcmp(ams_ver, fw_ver) != 0 && strncmp(ams_ver, "23.", 3) != 0) {
+            snprintf(safe_ams_update, sizeof(safe_ams_update), "%s", ams_ver);
+        } else if (strncmp(fw_ver, "23.", 3) == 0) {
+            snprintf(safe_ams_update, sizeof(safe_ams_update), "1.12.0");
+        }
+
         char ams_payload[512];
         snprintf(ams_payload, sizeof(ams_payload),
                  "{\"installed_version\":\"%s\",\"latest_version\":\"%s\",\"title\":\"Atmosphère Custom Firmware\","
                  "\"release_summary\":\"Atmosphère custom firmware for Nintendo Switch.\","
                  "\"release_url\":\"https://github.com/Atmosphere-NX/Atmosphere/releases/latest\","
                  "\"entity_picture\":\"https://avatars.githubusercontent.com/u/39328464\"}",
-                 ams_ver, ams_ver);
+                 safe_ams_update, safe_ams_update);
         mqtt_send_publish(fd, ams_update_top, ams_payload, true);
 
         char diag_state_top[192];
