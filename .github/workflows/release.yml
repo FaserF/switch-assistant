@@ -219,9 +219,34 @@ jobs:
             prerelease_arg="--prerelease"
           fi
           
+          mkdir -p package/switch/switch-ha package/atmosphere/contents/00FF000053484101/flags package/atmosphere/contents/00FF000053484102/flags
+          if [ -f "switch-ha.nro" ]; then
+            cp switch-ha.nro package/switch/switch-ha/switch-ha.nro
+          fi
+          if [ -f "overlay/switch-ha-overlay.ovl" ]; then
+            cp overlay/switch-ha-overlay.ovl package/switch/switch-ha/switch-ha-overlay.ovl
+          fi
+          if [ -f "sysmodule/atmosphere/contents/00FF000053484101/exefs.nsp" ]; then
+            cp sysmodule/atmosphere/contents/00FF000053484101/exefs.nsp package/atmosphere/contents/00FF000053484101/exefs.nsp
+            touch package/atmosphere/contents/00FF000053484101/flags/boot2.flag
+          fi
+          if [ -f "overlay-loader/atmosphere/contents/00FF000053484102/exefs.nsp" ]; then
+            cp overlay-loader/atmosphere/contents/00FF000053484102/exefs.nsp package/atmosphere/contents/00FF000053484102/exefs.nsp
+          fi
+          (cd package && zip -r ../switch-assistant.zip atmosphere switch)
+
           files_to_upload=()
           if [ -f "switch-ha.nro" ]; then
             files_to_upload+=("switch-ha.nro")
+          fi
+          if [ -f "switch-assistant.zip" ]; then
+            files_to_upload+=("switch-assistant.zip")
+          fi
+          if [ -f "overlay/switch-ha-overlay.ovl" ]; then
+            files_to_upload+=("overlay/switch-ha-overlay.ovl")
+          fi
+          if [ -f "sysmodule/atmosphere/contents/00FF000053484101/exefs.nsp" ]; then
+            files_to_upload+=("sysmodule/atmosphere/contents/00FF000053484101/exefs.nsp")
           fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
