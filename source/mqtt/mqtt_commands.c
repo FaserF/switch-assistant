@@ -74,23 +74,15 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
         }
     } else if (strcasecmp(cmd, "sleep") == 0 || strcasecmp(cmd, "standby") == 0) {
         app_state_push_log(state, "Remote sleep requested");
-        Result rc = appletRequestToSleep();
-        LOG_I("mqtt", "Remote appletRequestToSleep direct rc=0x%x", rc);
-        if (R_FAILED(rc)) {
-            rc = appletStartSleepSequence(true);
-            LOG_I("mqtt", "Remote appletStartSleepSequence rc=0x%x", rc);
-        }
-        if (R_FAILED(rc)) {
-            if (R_SUCCEEDED(appletInitialize())) {
-                rc = appletRequestToSleep();
-                LOG_I("mqtt", "Remote appletRequestToSleep after appletInitialize rc=0x%x", rc);
-                if (R_FAILED(rc)) {
-                    rc = appletStartSleepSequence(true);
-                    LOG_I("mqtt", "Remote appletStartSleepSequence after appletInitialize rc=0x%x", rc);
-                }
-                appletExit();
+        Result rc = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+        if (state->app_mode != AppMode_Sysmodule) {
+            rc = appletRequestToSleep();
+            if (R_FAILED(rc)) {
+                rc = appletStartSleepSequence(true);
             }
         }
+        LOG_I("mqtt", "Remote sleep rc=0x%x (mode=%d)", rc, state->app_mode);
+        app_state_push_log(state, "Remote sleep rc=0x%x", rc);
     } else if (strcasecmp(cmd, "close_game") == 0 || strcasecmp(cmd, "close") == 0 || strcasecmp(cmd, "exit_game") == 0) {
         app_state_push_log(state, "Remote close game requested");
         bool terminated = false;
@@ -467,23 +459,15 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
     } else if (strcasecmp(payload, "sleep") == 0 || strcasecmp(payload, "standby") == 0) {
         LOG_I("mqtt", "Sleep command accepted");
         app_state_push_log(state, "Sleep command accepted");
-        Result rc = appletRequestToSleep();
-        LOG_I("mqtt", "appletRequestToSleep direct rc=0x%x", rc);
-        if (R_FAILED(rc)) {
-            rc = appletStartSleepSequence(true);
-            LOG_I("mqtt", "appletStartSleepSequence rc=0x%x", rc);
-        }
-        if (R_FAILED(rc)) {
-            if (R_SUCCEEDED(appletInitialize())) {
-                rc = appletRequestToSleep();
-                LOG_I("mqtt", "appletRequestToSleep after appletInitialize rc=0x%x", rc);
-                if (R_FAILED(rc)) {
-                    rc = appletStartSleepSequence(true);
-                    LOG_I("mqtt", "appletStartSleepSequence after appletInitialize rc=0x%x", rc);
-                }
-                appletExit();
+        Result rc = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+        if (state->app_mode != AppMode_Sysmodule) {
+            rc = appletRequestToSleep();
+            if (R_FAILED(rc)) {
+                rc = appletStartSleepSequence(true);
             }
         }
+        LOG_I("mqtt", "Sleep rc=0x%x (mode=%d)", rc, state->app_mode);
+        app_state_push_log(state, "Sleep rc=0x%x", rc);
     } else if (strcasecmp(payload, "launch_daybreak") == 0 || strcasecmp(payload, "daybreak") == 0) {
         handle_firmware_update_command(state, fd, config, "daybreak");
     } else if (strncasecmp(payload, "launch_game ", 12) == 0) {

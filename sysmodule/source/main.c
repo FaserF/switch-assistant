@@ -117,29 +117,23 @@ static void power_guard_thread_main(void *arg) {
     bool last_sleeping = false;
 
     while (true) {
-        // Backlight is OFF when docked even though console is active!
-        // Never treat backlight off as system sleep when docked or active.
-        // We track backlight state for sensor telemetry without terminating MQTT loop.
-        bool sleeping = false;
+        // In sysmodule mode, appletGetOperationMode() is not available / returns 0.
+        // Screen backlight turning off or dimming must NOT mark the system as sleeping!
+        // When power_sleeping was set to true, MQTT heartbeats stopped and HA marked
+        // all entities as unavailable.
+        // We only use backlight status to pause RTSP screen streaming if screen is off in handheld.
+        bool screen_off = false;
         if (state->svc_lbl_ready) {
             LblBacklightSwitchStatus backlight = LblBacklightSwitchStatus_Enabled;
             if (R_SUCCEEDED(lblGetBacklightSwitchStatus(&backlight))) {
-                // If docked, screen is always disabled by design
-                AppletOperationMode op_mode = appletGetOperationMode();
-                if (op_mode == AppletOperationMode_Handheld) {
-                    sleeping = (backlight == LblBacklightSwitchStatus_Disabled ||
-                                backlight == LblBacklightSwitchStatus_Disabling);
-                }
+                screen_off = (backlight == LblBacklightSwitchStatus_Disabled ||
+                              backlight == LblBacklightSwitchStatus_Disabling);
             }
         }
 
-        if (sleeping != last_sleeping) {
-            mutexLock(&state->lock);
-            state->power_sleeping = sleeping;
-            state->sensor_publish_requested = true;
-            mutexUnlock(&state->lock);
-            screen_stream_set_paused(sleeping);
-            last_sleeping = sleeping;
+        if (screen_off != last_sleeping) {
+            screen_stream_set_paused(screen_off);
+            last_sleeping = screen_off;
         }
 
         svcSleepThread(1000ULL * 1000ULL * 1000ULL);
