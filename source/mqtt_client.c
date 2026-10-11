@@ -283,9 +283,10 @@ static void mqtt_loop(void *arg) {
         mutexLock(&state->lock);
         state->mqtt_tcp_ok = false;
         state->mqtt_connected = false;
-        snprintf(state->mqtt_last_error, sizeof(state->mqtt_last_error), "%s", power_sleeping ? "sleeping" : "disconnected");
+        bool is_sleeping = state->power_sleeping;
+        snprintf(state->mqtt_last_error, sizeof(state->mqtt_last_error), "%s", is_sleeping ? "sleeping" : "disconnected");
         mutexUnlock(&state->lock);
-        if (!power_sleeping) {
+        if (!is_sleeping) {
             app_state_push_log(state, "MQTT disconnected");
         }
         svcSleepThread(1000ULL * 1000ULL * 1000ULL);
