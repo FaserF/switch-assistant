@@ -224,12 +224,14 @@ static void mqtt_loop(void *arg) {
                     break;
                 }
                 mqtt_publish_state(state, fd, &config, "online");
+                mqtt_send_publish(fd, avail_topic, "online", true);
                 last_heartbeat_ms = now;
             }
         }
 
-        if (!power_sleeping) {
+        if (state->exit_requested) {
             mqtt_publish_state(state, fd, &config, "offline");
+            mqtt_send_publish(fd, avail_topic, "offline", true);
         }
         close(fd);
         g_ctx.socket_fd = -1;

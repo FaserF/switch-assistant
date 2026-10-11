@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -144,6 +145,11 @@ static bool socket_connect_ipv4(AppState *state, const char *host, int port, int
     }
 
     if (connect(fd, (struct sockaddr *) &addr, sizeof(addr)) == 0) {
+        int opt = 1;
+        setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt));
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+        struct timeval tv = {.tv_sec = 10, .tv_usec = 0};
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
         *out_fd = fd;
         mqtt_set_status(state, true, true, false, "TCP OK: %s:%d", host, port);
         return true;
@@ -185,6 +191,11 @@ bool mqtt_socket_connect_to(AppState *state, const char *host, int port, int *ou
             continue;
         }
         if (connect(fd, addr->ai_addr, addr->ai_addrlen) == 0) {
+            int opt = 1;
+            setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt));
+            setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+            struct timeval tv = {.tv_sec = 10, .tv_usec = 0};
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
             *out_fd = fd;
             freeaddrinfo(result);
             mqtt_set_status(state, true, true, false, "TCP OK: %s:%d", host, port);

@@ -36,6 +36,13 @@ typedef struct {
     char internal_free[16];
     char internal_total[16];
     char memory_used[16];
+    char mp_state[16];
+    char mp_volume[16];
+    char mp_title[0x200];
+    char mp_source[0x200];
+    int games_count_2p;
+    int games_count_4p;
+    int games_count_8p;
 } SensorSnapshot;
 
 void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *config, SensorSnapshot *snapshot, bool force);
