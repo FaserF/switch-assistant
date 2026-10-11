@@ -26,12 +26,15 @@ typedef struct {
     char screen_rtsp_url[128];
     char player_controller_count[16];
     char player_controller[MAX_PLAYERS][32];
+    char player_wired[MAX_PLAYERS][8];
     char docked[8];
     char soc_temperature[16];
     char uptime[24];
     char wifi_rssi[16];
     char sd_free[16];
+    char sd_total[16];
     char internal_free[16];
+    char internal_total[16];
     char memory_used[16];
 } SensorSnapshot;
 

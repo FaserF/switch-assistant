@@ -337,9 +337,11 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
     if (state->svc_hid_ready) {
         int player_controller_count = 0;
         char player_values[MAX_PLAYERS][32];
+        char player_wired_values[MAX_PLAYERS][8];
 
         for (int i = 0; i < MAX_PLAYERS; ++i) {
             snprintf(player_values[i], sizeof(player_values[i]), "none");
+            snprintf(player_wired_values[i], sizeof(player_wired_values[i]), "OFF");
         }
 
         for (size_t i = 0; i < sizeof(player_ids) / sizeof(player_ids[0]); ++i) {
@@ -351,6 +353,10 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
 
             player_controller_count++;
             controller_value(player_values[i], sizeof(player_values[i]), style);
+            bool is_wired = (attributes & HidNpadAttribute_IsWired) ||
+                            (attributes & HidNpadAttribute_IsLeftWired) ||
+                            (attributes & HidNpadAttribute_IsRightWired);
+            snprintf(player_wired_values[i], sizeof(player_wired_values[i]), is_wired ? "ON" : "OFF");
         }
 
         if (player_controller_count == 0) {
@@ -359,6 +365,10 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
             if (style != 0 && npad_has_state(HidNpadIdType_Handheld, style, &attributes)) {
                 player_controller_count = 1;
                 controller_value(player_values[0], sizeof(player_values[0]), style);
+                bool is_wired = (attributes & HidNpadAttribute_IsWired) ||
+                                (attributes & HidNpadAttribute_IsLeftWired) ||
+                                (attributes & HidNpadAttribute_IsRightWired);
+                snprintf(player_wired_values[0], sizeof(player_wired_values[0]), is_wired ? "ON" : "OFF");
             }
         }
 
@@ -368,6 +378,10 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
             char sensor[32];
             snprintf(sensor, sizeof(sensor), "player_%d_controller", i + 1);
             publish_if_changed(fd, config, snapshot, force, sensor, snapshot->player_controller[i], sizeof(snapshot->player_controller[i]), player_values[i]);
+
+            char wired_sensor[32];
+            snprintf(wired_sensor, sizeof(wired_sensor), "player_%d_wired", i + 1);
+            publish_if_changed(fd, config, snapshot, force, wired_sensor, snapshot->player_wired[i], sizeof(snapshot->player_wired[i]), player_wired_values[i]);
         }
     }
 
@@ -568,9 +582,14 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         FsFileSystem sd_fs;
         if (R_SUCCEEDED(fsOpenSdCardFileSystem(&sd_fs))) {
             s64 sd_free_bytes = 0;
+            s64 sd_total_bytes = 0;
             if (R_SUCCEEDED(fsFsGetFreeSpace(&sd_fs, "/", &sd_free_bytes))) {
                 snprintf(value, sizeof(value), "%lld", (long long) (sd_free_bytes / (1024 * 1024)));
                 publish_if_changed(fd, config, snapshot, force, "sd_free", snapshot->sd_free, sizeof(snapshot->sd_free), value);
+            }
+            if (R_SUCCEEDED(fsFsGetTotalSpace(&sd_fs, "/", &sd_total_bytes))) {
+                snprintf(value, sizeof(value), "%lld", (long long) (sd_total_bytes / (1024 * 1024)));
+                publish_if_changed(fd, config, snapshot, force, "sd_total", snapshot->sd_total, sizeof(snapshot->sd_total), value);
             }
             fsFsClose(&sd_fs);
         }
@@ -579,9 +598,14 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         FsFileSystem user_fs;
         if (R_SUCCEEDED(fsOpenBisFileSystem(&user_fs, FsBisPartitionId_UserData, ""))) {
             s64 user_free_bytes = 0;
+            s64 user_total_bytes = 0;
             if (R_SUCCEEDED(fsFsGetFreeSpace(&user_fs, "/", &user_free_bytes))) {
                 snprintf(value, sizeof(value), "%lld", (long long) (user_free_bytes / (1024 * 1024)));
                 publish_if_changed(fd, config, snapshot, force, "internal_free", snapshot->internal_free, sizeof(snapshot->internal_free), value);
+            }
+            if (R_SUCCEEDED(fsFsGetTotalSpace(&user_fs, "/", &user_total_bytes))) {
+                snprintf(value, sizeof(value), "%lld", (long long) (user_total_bytes / (1024 * 1024)));
+                publish_if_changed(fd, config, snapshot, force, "internal_total", snapshot->internal_total, sizeof(snapshot->internal_total), value);
             }
             fsFsClose(&user_fs);
         }

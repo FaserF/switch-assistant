@@ -612,9 +612,14 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
         for (int i = 0; i < MAX_PLAYERS; ++i) {
             char sensor[32];
             char name[32];
+            char wired_sensor[32];
+            char wired_name[32];
             snprintf(sensor, sizeof(sensor), "player_%d_controller", i + 1);
             snprintf(name, sizeof(name), "Player %d Controller", i + 1);
             publish_discovery_sensor_disabled(state, fd, config, "sensor", sensor, name, NULL, NULL, NULL, "diagnostic", "mdi:controller");
+            snprintf(wired_sensor, sizeof(wired_sensor), "player_%d_wired", i + 1);
+            snprintf(wired_name, sizeof(wired_name), "Player %d Controller Wired", i + 1);
+            publish_discovery_sensor_disabled(state, fd, config, "binary_sensor", wired_sensor, wired_name, "plug", NULL, NULL, "diagnostic", "mdi:controller-classic");
         }
     }
     if (state->svc_spsm_ready) {
@@ -646,7 +651,9 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
         publish_discovery_sensor_disabled(state, fd, config, "sensor", "wifi_rssi", "WiFi Signal Strength", "signal_strength", "dBm", "measurement", "diagnostic", "mdi:wifi");
     }
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "sd_free", "SD Card Free Space", "data_size", "MB", "measurement", "diagnostic", "mdi:micro-sd");
+    publish_discovery_sensor_disabled(state, fd, config, "sensor", "sd_total", "SD Card Total Space", "data_size", "MB", "measurement", "diagnostic", "mdi:micro-sd");
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "internal_free", "Internal Storage Free Space", "data_size", "MB", "measurement", "diagnostic", "mdi:harddisk");
+    publish_discovery_sensor_disabled(state, fd, config, "sensor", "internal_total", "Internal Storage Total Space", "data_size", "MB", "measurement", "diagnostic", "mdi:harddisk");
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "memory_used", "RAM Used", "data_size", "MB", "measurement", "diagnostic", "mdi:memory");
     if (state->app_mode == AppMode_Sysmodule) {
         publish_discovery_sensor_disabled(state, fd, config, "sensor", SCREEN_RTSP_URL_SENSOR, "Screen Stream URL", NULL, NULL, NULL, "diagnostic", "mdi:video");

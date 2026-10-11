@@ -84,7 +84,9 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 | `sensor` | `Uptime` | Console system uptime | *Disabled by default* | `s` |
 | `sensor` | `WiFi Signal Strength` | WiFi RSSI connection strength | *Disabled by default* | `dBm` |
 | `sensor` | `SD Card Free Space` | Available storage space on SD card | *Disabled by default* | `MB` |
+| `sensor` | `SD Card Total Space` | Total storage capacity of SD card | *Disabled by default* | `MB` |
 | `sensor` | `Internal Storage Free Space` | Available storage space on NAND (User Partition) | *Disabled by default* | `MB` |
+| `sensor` | `Internal Storage Total Space` | Total capacity of internal NAND (User Partition) | *Disabled by default* | `MB` |
 | `sensor` | `RAM Used` | Current system memory usage | *Disabled by default* | `MB` |
 | `number` | `Screen Brightness` | Controls display brightness level | **Enabled** | `0` – `100` (`%`, step `5`) |
 | `switch` | `Screen` | Controls display backlight state (on/off) | **Enabled** | `ON` / `OFF` |
@@ -93,6 +95,7 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 | `sensor` | `Volume` | System audio volume | *Disabled by default* | `%` (0–100) |
 | `sensor` | `Audio Output Target` | Active audio endpoint | *Disabled by default* | `speaker`, `headphone`, `tv`, `usb`, `bluetooth` |
 | `sensor` | `Player 1–8 Controller` | Controller model per player slot | *Disabled by default* | `handheld`, `joydual`, `joyleft`, `joyright`, `pro`, `gamecube`, `snes`, `n64`, `genesis` |
+| `binary_sensor` | `Player 1–8 Controller Wired` | Wired/docked or wireless status per player slot | *Disabled by default* | `ON` (wired) / `OFF` (wireless/none) |
 | `sensor` | `Screen Stream URL` | RTSP live video stream URL | *Disabled by default* | `rtsp://<switch_ip>:8554/` |
 
 ## Remote Control, Media Player & Game Launching
