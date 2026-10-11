@@ -11,10 +11,10 @@ static void get_system_device_info(AppState *state, char *mac_str, size_t mac_si
     if (mac_str && mac_size > 0) {
         mac_str[0] = '\0';
         if (R_SUCCEEDED(setcalInitialize())) {
-            u8 mac[6] = {0};
-            if (R_SUCCEEDED(setcalGetWirelessLanMacAddress(mac))) {
+            SetCalMacAddress mac = {0};
+            if (R_SUCCEEDED(setcalGetWirelessLanMacAddress(&mac))) {
                 snprintf(mac_str, mac_size, "%02X:%02X:%02X:%02X:%02X:%02X",
-                         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+                         mac.addr[0], mac.addr[1], mac.addr[2], mac.addr[3], mac.addr[4], mac.addr[5]);
             }
             setcalExit();
         }
