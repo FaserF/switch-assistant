@@ -7,8 +7,7 @@
 
 
 #include <switch.h>
-#include <switch/applets/libapplet.h>
-#include <switch/services/applet.h>
+#include <switch/services/pm.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,6 +92,25 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
             if (R_FAILED(rc)) {
                 rc = appletStartSleepSequence(true);
             }
+        } else {
+            // In sysmodule mode: use spsm / svcSleepSystem
+            if (!state->svc_spsm_ready) {
+                if (R_SUCCEEDED(spsmInitialize())) {
+                    state->svc_spsm_ready = true;
+                }
+            }
+            if (state->svc_spsm_ready) {
+                // Command 1 on spsm IPowerStateInterface is EnterSleep
+                Service *spsm_srv = spsmGetServiceSession();
+                if (spsm_srv && serviceIsActive(spsm_srv)) {
+                    rc = serviceDispatch(spsm_srv, 1);
+                }
+            }
+            if (R_FAILED(rc)) {
+                // Privileged syscall svcSleepSystem (0x4D) fallback
+                svcSleepSystem();
+                rc = 0;
+            }
         }
         LOG_I("mqtt", "Remote sleep rc=0x%x (mode=%d)", rc, state->app_mode);
         app_state_push_log(state, "Remote sleep rc=0x%x", rc);
@@ -100,6 +118,12 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
     } else if (strcasecmp(cmd, "close_game") == 0 || strcasecmp(cmd, "close") == 0 || strcasecmp(cmd, "exit_game") == 0) {
         app_state_push_log(state, "Remote close game requested");
         bool terminated = false;
+        // 1. Try pmshellTerminateProgram / pmshellTerminateProcess via pm:shell
+        bool pmshell_ready = false;
+        if (R_SUCCEEDED(pmshellInitialize())) {
+            pmshell_ready = true;
+        }
+
         if (state->svc_pminfo_ready) {
             u64 process_ids[96];
             s32 process_count = 0;
@@ -112,8 +136,17 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
                         if (title_cache_lookup(prog_id, name, sizeof(name))) {
                             LOG_I("mqtt", "Terminating running game pid=%llu prog=0x%016llx (%s)",
                                   (unsigned long long)process_ids[i], (unsigned long long)prog_id, name);
-                            Result rc_term = svcTerminateProcess(process_ids[i]);
-                            LOG_I("mqtt", "svcTerminateProcess rc=0x%x", rc_term);
+                            Result rc_term = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+                            if (pmshell_ready) {
+                                rc_term = pmshellTerminateProgram(prog_id);
+                                if (R_FAILED(rc_term)) {
+                                    rc_term = pmshellTerminateProcess(process_ids[i]);
+                                }
+                            }
+                            if (R_FAILED(rc_term)) {
+                                rc_term = svcTerminateProcess(process_ids[i]);
+                            }
+                            LOG_I("mqtt", "Termination rc=0x%x for '%s'", rc_term, name);
                             app_state_push_log(state, "Close game '%s' rc=0x%x", name, rc_term);
                             terminated = true;
                             break;
@@ -121,6 +154,9 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
                     }
                 }
             }
+        }
+        if (pmshell_ready) {
+            pmshellExit();
         }
         if (!terminated) {
             if (state->app_mode != AppMode_Sysmodule) {
@@ -479,18 +515,7 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         mqtt_publish_cmd_status(fd, config, "shutdown", "success");
         spsmShutdown(false);
     } else if (strcasecmp(payload, "sleep") == 0 || strcasecmp(payload, "standby") == 0) {
-        LOG_I("mqtt", "Sleep command accepted");
-        app_state_push_log(state, "Sleep command accepted");
-        Result rc = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
-        if (state->app_mode != AppMode_Sysmodule) {
-            rc = appletRequestToSleep();
-            if (R_FAILED(rc)) {
-                rc = appletStartSleepSequence(true);
-            }
-        }
-        LOG_I("mqtt", "Sleep rc=0x%x (mode=%d)", rc, state->app_mode);
-        app_state_push_log(state, "Sleep rc=0x%x", rc);
-        mqtt_publish_cmd_status(fd, config, "sleep", R_SUCCEEDED(rc) ? "success" : "failed");
+        handle_remote_command(state, fd, config, "sleep");
     } else if (strcasecmp(payload, "close_game") == 0 || strcasecmp(payload, "close") == 0 || strcasecmp(payload, "exit_game") == 0) {
         handle_remote_command(state, fd, config, "close_game");
     } else if (strcasecmp(payload, "launch_daybreak") == 0 || strcasecmp(payload, "daybreak") == 0) {

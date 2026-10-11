@@ -93,7 +93,8 @@
 				"svcCreatePort":	"0x70",
 				"svcManageNamedPort":	"0x71",
 				"svcConnectToPort":	"0x72",
-				"svcTerminateProcess":	"0x78"
+				"svcTerminateProcess":	"0x7B",
+				"svcSleepSystem":	"0x4D"
 			}
 		}, {
 			"type":	"min_kernel_version",
