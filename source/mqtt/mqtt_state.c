@@ -576,6 +576,17 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         }
     }
     {
+        FsFileSystem user_fs;
+        if (R_SUCCEEDED(fsOpenBisFileSystem(&user_fs, FsBisPartitionId_UserData, ""))) {
+            s64 user_free_bytes = 0;
+            if (R_SUCCEEDED(fsFsGetFreeSpace(&user_fs, "/", &user_free_bytes))) {
+                snprintf(value, sizeof(value), "%lld", (long long) (user_free_bytes / (1024 * 1024)));
+                publish_if_changed(fd, config, snapshot, force, "internal_free", snapshot->internal_free, sizeof(snapshot->internal_free), value);
+            }
+            fsFsClose(&user_fs);
+        }
+    }
+    {
         u64 used_mem = 0;
         if (R_SUCCEEDED(svcGetInfo(&used_mem, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0))) {
             snprintf(value, sizeof(value), "%llu", (unsigned long long) (used_mem / (1024 * 1024)));

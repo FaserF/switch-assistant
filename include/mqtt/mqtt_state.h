@@ -31,6 +31,7 @@ typedef struct {
     char uptime[24];
     char wifi_rssi[16];
     char sd_free[16];
+    char internal_free[16];
     char memory_used[16];
 } SensorSnapshot;
 

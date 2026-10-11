@@ -52,6 +52,17 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
             app_state_push_log(state, "Remote shutdown accepted");
             spsmShutdown(false);
         }
+    } else if (strcasecmp(cmd, "sleep") == 0 || strcasecmp(cmd, "standby") == 0) {
+        if (state->svc_spsm_ready) {
+            app_state_push_log(state, "Remote sleep accepted");
+            spsmPutToSleep();
+        }
+    } else if (strcasecmp(cmd, "close_game") == 0 || strcasecmp(cmd, "close") == 0 || strcasecmp(cmd, "exit_game") == 0) {
+        app_state_push_log(state, "Remote close game requested");
+        appletRequestHomeMenu();
+        mutexLock(&state->lock);
+        state->sensor_publish_requested = true;
+        mutexUnlock(&state->lock);
     } else if (strcasecmp(cmd, "volume_up") == 0) {
         if (state->svc_audctl_ready) {
             AudioTarget audio_target = AudioTarget_Invalid;

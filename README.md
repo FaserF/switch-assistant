@@ -70,6 +70,9 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 | `sensor` | `Player Count` | Number of active player controllers | **Enabled** | `0` – `8` |
 | `button` | `Reboot` | Restarts the Switch console | **Enabled** | Button press |
 | `button` | `Shutdown` | Powers down the Switch console | **Enabled** | Button press |
+| `button` | `Sleep` | Puts the Switch console to sleep | **Enabled** | Button press |
+| `button` | `Close Game` | Returns to the Home Menu / closes active game | **Enabled** | Button press |
+| `button` | `Launch Daybreak` | Launches the Daybreak firmware updater | **Enabled** | Button press |
 | `event` | `Overlay Action` | Events triggered from overlay / shortcuts | **Enabled** | `toggle`, `turn_on`, `turn_off`, `call_service`, etc. |
 | `notify` | `Popup Notification` | In-game notification toast | **Enabled** | Text message / JSON payload |
 | `sensor` | `Current Game Title ID` | Hex Title ID of running game | *Disabled by default* | 16-character hex (e.g. `0100000000010000`) |
@@ -81,6 +84,7 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 | `sensor` | `Uptime` | Console system uptime | *Disabled by default* | `s` |
 | `sensor` | `WiFi Signal Strength` | WiFi RSSI connection strength | *Disabled by default* | `dBm` |
 | `sensor` | `SD Card Free Space` | Available storage space on SD card | *Disabled by default* | `MB` |
+| `sensor` | `Internal Storage Free Space` | Available storage space on NAND (User Partition) | *Disabled by default* | `MB` |
 | `sensor` | `RAM Used` | Current system memory usage | *Disabled by default* | `MB` |
 | `sensor` | `Screen Brightness` | Current display brightness level | *Disabled by default* | `%` (0–100) |
 | `binary_sensor` | `Screen` | Screen backlight status | *Disabled by default* | `ON` / `OFF` |

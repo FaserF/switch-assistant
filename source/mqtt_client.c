@@ -163,6 +163,10 @@ static void mqtt_loop(void *arg) {
         mutexUnlock(&state->lock);
         app_state_push_log(state, "MQTT connected");
         app_state_set_status(state, "MQTT connected");
+
+        char avail_topic[192];
+        mqtt_availability_topic(&config, avail_topic, sizeof(avail_topic));
+        mqtt_send_publish(fd, avail_topic, "online", true);
         SensorSnapshot sensor_snapshot = {0};
         mqtt_publish_sensor_discovery(state, fd, &config);
         mqtt_publish_state(state, fd, &config, "online");

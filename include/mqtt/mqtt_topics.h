@@ -43,3 +43,4 @@ void mqtt_atmosphere_update_state_topic(const AppConfig *config, char *topic, si
 void mqtt_atmosphere_update_command_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_overlay_event_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_call_service_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_availability_topic(const AppConfig *config, char *topic, size_t topic_size);

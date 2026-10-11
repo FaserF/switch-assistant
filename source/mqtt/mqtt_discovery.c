@@ -77,16 +77,18 @@ static void get_system_device_info(AppState *state, char *mac_str, size_t mac_si
 static void build_device_json_snippet(AppState *state, const AppConfig *config, const char *safe_id, char *out_dev, size_t out_size) {
     char mac[32] = "";
     char sw_version[96] = "";
+    char avty_top[192] = "";
     get_system_device_info(state, mac, sizeof(mac), sw_version, sizeof(sw_version));
+    mqtt_availability_topic(config, avty_top, sizeof(avty_top));
 
     if (mac[0] != '\0') {
         snprintf(out_dev, out_size,
-                 "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\",\"sw_version\":\"%s\",\"connections\":[[\"mac\",\"%s\"]]}",
-                 safe_id, config->device_name, sw_version, mac);
+                 "\"avty_t\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\",\"sw_version\":\"%s\",\"connections\":[[\"mac\",\"%s\"]]}",
+                 avty_top, safe_id, config->device_name, sw_version, mac);
     } else {
         snprintf(out_dev, out_size,
-                 "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\",\"sw_version\":\"%s\"}",
-                 safe_id, config->device_name, sw_version);
+                 "\"avty_t\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Nintendo\",\"mdl\":\"Switch\",\"sw_version\":\"%s\"}",
+                 avty_top, safe_id, config->device_name, sw_version);
     }
 }
 
@@ -548,7 +550,9 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     if (state->svc_spsm_ready) {
         publish_discovery_button(state, fd, config, "reboot", "Reboot", "reboot");
         publish_discovery_button(state, fd, config, "shutdown", "Shutdown", "shutdown");
+        publish_discovery_button(state, fd, config, "sleep", "Sleep", "sleep");
     }
+    publish_discovery_button(state, fd, config, "close_game", "Close Game", "close_game");
     publish_discovery_button(state, fd, config, "launch_daybreak", "Launch Daybreak", "launch_daybreak");
     title_cache_refresh_installed_games();
     publish_discovery_remote(state, fd, config);
@@ -572,6 +576,7 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
         publish_discovery_sensor_disabled(state, fd, config, "sensor", "wifi_rssi", "WiFi Signal Strength", "signal_strength", "dBm", "measurement", "diagnostic", "mdi:wifi");
     }
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "sd_free", "SD Card Free Space", "data_size", "MB", "measurement", "diagnostic", "mdi:micro-sd");
+    publish_discovery_sensor_disabled(state, fd, config, "sensor", "internal_free", "Internal Storage Free Space", "data_size", "MB", "measurement", "diagnostic", "mdi:harddisk");
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "memory_used", "RAM Used", "data_size", "MB", "measurement", "diagnostic", "mdi:memory");
     if (state->app_mode == AppMode_Sysmodule) {
         publish_discovery_sensor_disabled(state, fd, config, "sensor", SCREEN_RTSP_URL_SENSOR, "Screen Stream URL", NULL, NULL, NULL, "diagnostic", "mdi:video");

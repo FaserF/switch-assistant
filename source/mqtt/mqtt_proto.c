@@ -268,9 +268,14 @@ bool mqtt_send_connect(const AppConfig *config, int fd) {
     unsigned char variable[MQTT_BUFFER];
     unsigned char *ptr = variable;
 
+    char will_topic[192];
+    mqtt_availability_topic(config, will_topic, sizeof(will_topic));
+    const char *will_payload = "offline";
+
     ptr = mqtt_write_string(ptr, "MQTT");
     *ptr++ = 0x04;
-    unsigned char flags = 0x02;
+    // Clean session (0x02) + Will Flag (0x04) + Will Retain (0x20) = 0x26
+    unsigned char flags = 0x02 | 0x04 | 0x20;
     if (config->mqtt_username[0] != '\0') {
         flags |= 0x80;
     }
@@ -281,6 +286,11 @@ bool mqtt_send_connect(const AppConfig *config, int fd) {
     *ptr++ = 0x00;
     *ptr++ = MQTT_KEEPALIVE;
     ptr = mqtt_write_string(ptr, config->mqtt_client_id[0] ? config->mqtt_client_id : config->device_name);
+
+    // Will Topic and Will Message
+    ptr = mqtt_write_string(ptr, will_topic);
+    ptr = mqtt_write_string(ptr, will_payload);
+
     if (config->mqtt_username[0] != '\0') {
         ptr = mqtt_write_string(ptr, config->mqtt_username);
     }
