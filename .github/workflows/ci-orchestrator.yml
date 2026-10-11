@@ -41,7 +41,7 @@ jobs:
       custom_components: ${{ steps.filter.outputs.custom_components }}
       hacs: ${{ steps.filter.outputs.hacs }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -76,12 +76,12 @@ jobs:
       has_components: ${{ steps.check_integration.outputs.has_components }}
       has_hacs: ${{ steps.check_integration.outputs.has_hacs }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.15'
+          python-version: '3.12'
 
       - name: Install Python Dependencies
         run: |
@@ -121,7 +121,7 @@ jobs:
           ruff format . || true
 
       - name: Commit and push changes
-        uses: stefanzweifel/git-auto-commit-action@v7
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "style: auto-fix and format with Ruff [skip ci]"
           commit_user_name: "github-actions[bot]"
@@ -146,7 +146,7 @@ jobs:
           fi
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
@@ -157,7 +157,7 @@ jobs:
     needs: lint-test
     if: needs.lint-test.outputs.has_components == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - name: Validate with Hassfest
         uses: home-assistant/actions/hassfest@master
 
@@ -167,7 +167,7 @@ jobs:
     needs: lint-test
     if: needs.lint-test.outputs.has_hacs == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - name: HACS validation
         uses: hacs/action@main
         with:
@@ -184,7 +184,7 @@ jobs:
       security-events: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -200,7 +200,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.switch == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - name: Validate JSON Structure and Syscalls
         run: |
@@ -227,7 +227,7 @@ jobs:
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled')
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - name: Enable Auto Merge
         run: gh pr merge --squash "$PR_URL"
         env:
