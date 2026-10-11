@@ -47,21 +47,47 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
     app_state_push_log(state, "Remote command: %s", cmd);
 
     if (strcasecmp(cmd, "reboot") == 0 || strcasecmp(cmd, "restart") == 0) {
+        if (!state->svc_spsm_ready) {
+            LOG_I("mqtt", "spsm not ready, attempting re-initialization for remote reboot");
+            if (R_SUCCEEDED(spsmInitialize())) {
+                state->svc_spsm_ready = true;
+            }
+        }
         if (state->svc_spsm_ready) {
             app_state_push_log(state, "Remote reboot accepted");
             spsmShutdown(true);
+        } else {
+            app_state_push_log(state, "Remote reboot failed: spsm not ready");
         }
     } else if (strcasecmp(cmd, "shutdown") == 0 || strcasecmp(cmd, "poweroff") == 0 || strcasecmp(cmd, "turn_off") == 0 || strcasecmp(cmd, "off") == 0) {
+        if (!state->svc_spsm_ready) {
+            LOG_I("mqtt", "spsm not ready, attempting re-initialization for remote shutdown");
+            if (R_SUCCEEDED(spsmInitialize())) {
+                state->svc_spsm_ready = true;
+            }
+        }
         if (state->svc_spsm_ready) {
             app_state_push_log(state, "Remote shutdown accepted");
             spsmShutdown(false);
+        } else {
+            app_state_push_log(state, "Remote shutdown failed: spsm not ready");
         }
     } else if (strcasecmp(cmd, "sleep") == 0 || strcasecmp(cmd, "standby") == 0) {
         app_state_push_log(state, "Remote sleep requested");
         Result rc = appletRequestToSleep();
+        LOG_I("mqtt", "Remote appletRequestToSleep direct rc=0x%x", rc);
+        if (R_FAILED(rc)) {
+            rc = appletStartSleepSequence(true);
+            LOG_I("mqtt", "Remote appletStartSleepSequence rc=0x%x", rc);
+        }
         if (R_FAILED(rc)) {
             if (R_SUCCEEDED(appletInitialize())) {
                 rc = appletRequestToSleep();
+                LOG_I("mqtt", "Remote appletRequestToSleep after appletInitialize rc=0x%x", rc);
+                if (R_FAILED(rc)) {
+                    rc = appletStartSleepSequence(true);
+                    LOG_I("mqtt", "Remote appletStartSleepSequence after appletInitialize rc=0x%x", rc);
+                }
                 appletExit();
             }
         }
@@ -383,8 +409,14 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         handle_get_logs_command(state, fd, config, payload);
     } else if (strcasecmp(payload, "reboot") == 0) {
         if (!state->svc_spsm_ready) {
+            LOG_I("mqtt", "spsm not ready, attempting re-initialization for reboot");
+            if (R_SUCCEEDED(spsmInitialize())) {
+                state->svc_spsm_ready = true;
+            }
+        }
+        if (!state->svc_spsm_ready) {
             LOG_W("mqtt", "Reboot unavailable: spsm not ready");
-            app_state_push_log(state, "Reboot unavailable: spsm not ready");
+            app_state_push_log(state, "Reboot failed: spsm not ready");
             return;
         }
         LOG_I("mqtt", "Reboot command accepted");
@@ -392,8 +424,14 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         spsmShutdown(true);
     } else if (strcasecmp(payload, "shutdown") == 0 || strcasecmp(payload, "poweroff") == 0) {
         if (!state->svc_spsm_ready) {
+            LOG_I("mqtt", "spsm not ready, attempting re-initialization for shutdown");
+            if (R_SUCCEEDED(spsmInitialize())) {
+                state->svc_spsm_ready = true;
+            }
+        }
+        if (!state->svc_spsm_ready) {
             LOG_W("mqtt", "Shutdown unavailable: spsm not ready");
-            app_state_push_log(state, "Shutdown unavailable: spsm not ready");
+            app_state_push_log(state, "Shutdown failed: spsm not ready");
             return;
         }
         LOG_I("mqtt", "Shutdown command accepted");
@@ -403,9 +441,19 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         LOG_I("mqtt", "Sleep command accepted");
         app_state_push_log(state, "Sleep command accepted");
         Result rc = appletRequestToSleep();
+        LOG_I("mqtt", "appletRequestToSleep direct rc=0x%x", rc);
+        if (R_FAILED(rc)) {
+            rc = appletStartSleepSequence(true);
+            LOG_I("mqtt", "appletStartSleepSequence rc=0x%x", rc);
+        }
         if (R_FAILED(rc)) {
             if (R_SUCCEEDED(appletInitialize())) {
                 rc = appletRequestToSleep();
+                LOG_I("mqtt", "appletRequestToSleep after appletInitialize rc=0x%x", rc);
+                if (R_FAILED(rc)) {
+                    rc = appletStartSleepSequence(true);
+                    LOG_I("mqtt", "appletStartSleepSequence after appletInitialize rc=0x%x", rc);
+                }
                 appletExit();
             }
         }
@@ -584,6 +632,7 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     payload[payload_len] = '\0';
 
     char command_topic[SHA_MAX_TOPIC + 32];
+    char dev_cmd_topic[192];
     char popup_topic[192];
     char send_cmd_topic[192];
     char cmd_set_topic[192];
@@ -602,6 +651,7 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     char logs_cmd_topic[192];
 
     snprintf(command_topic, sizeof(command_topic), "%s/command", config->mqtt_topic_prefix);
+    mqtt_command_topic(config, dev_cmd_topic, sizeof(dev_cmd_topic));
     mqtt_notification_topic(config, "popup", popup_topic, sizeof(popup_topic));
     mqtt_remote_send_command_topic(config, send_cmd_topic, sizeof(send_cmd_topic));
     mqtt_remote_set_topic(config, cmd_set_topic, sizeof(cmd_set_topic));
@@ -619,7 +669,10 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     mqtt_backlight_cmd_topic(config, bl_cmd_topic, sizeof(bl_cmd_topic));
     mqtt_logs_command_topic(config, logs_cmd_topic, sizeof(logs_cmd_topic));
 
-    if (strcmp(topic, command_topic) == 0) {
+    LOG_I("mqtt", "RX publish topic='%s' payload='%s'", topic, payload);
+    app_state_push_log(state, "MQTT RX: %s -> %s", topic, payload);
+
+    if (strcmp(topic, command_topic) == 0 || strcmp(topic, dev_cmd_topic) == 0) {
         handle_command_payload(state, fd, config, payload);
     } else if (strcmp(topic, logs_cmd_topic) == 0) {
         handle_get_logs_command(state, fd, config, payload);
@@ -645,6 +698,11 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     } else if (strcmp(topic, ams_update_cmd_topic) == 0) {
         handle_atmosphere_update_command(state, fd, config, payload);
     } else if (strcmp(topic, br_cmd_topic) == 0) {
+        if (!state->svc_lbl_ready) {
+            if (R_SUCCEEDED(lblInitialize())) {
+                state->svc_lbl_ready = true;
+            }
+        }
         if (state->svc_lbl_ready) {
             float val = (float) atof(payload);
             if (val < 0.0f) val = 0.0f;
@@ -652,6 +710,7 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
             Result rc = lblSetCurrentBrightnessSetting(val / 100.0f);
             Result rc_apply = lblApplyCurrentBrightnessSettingToBacklight();
             LOG_I("mqtt", "Set brightness to %.1f%% (rc=0x%x, apply_rc=0x%x)", val, rc, rc_apply);
+            app_state_push_log(state, "Set brightness to %.0f%% (rc=0x%x)", val, rc);
             char val_str[16];
             snprintf(val_str, sizeof(val_str), "%.0f", val);
             char br_stat_top[192];
@@ -660,18 +719,30 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
             mutexLock(&state->lock);
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
+        } else {
+            LOG_W("mqtt", "Set brightness failed: lbl not ready");
+            app_state_push_log(state, "Set brightness failed: lbl not ready");
         }
     } else if (strcmp(topic, bl_cmd_topic) == 0) {
+        if (!state->svc_lbl_ready) {
+            if (R_SUCCEEDED(lblInitialize())) {
+                state->svc_lbl_ready = true;
+            }
+        }
         if (state->svc_lbl_ready) {
             bool on = (strcasecmp(payload, "ON") == 0 || strcasecmp(payload, "true") == 0 || strcasecmp(payload, "1") == 0);
             Result rc = on ? lblSwitchBacklightOn(0) : lblSwitchBacklightOff(0);
             LOG_I("mqtt", "Switch backlight %s (rc=0x%x)", on ? "ON" : "OFF", rc);
+            app_state_push_log(state, "Switch backlight %s (rc=0x%x)", on ? "ON" : "OFF", rc);
             char bl_stat_top[192];
             mqtt_backlight_state_topic(config, bl_stat_top, sizeof(bl_stat_top));
             mqtt_send_publish(fd, bl_stat_top, on ? "ON" : "OFF", true);
             mutexLock(&state->lock);
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
+        } else {
+            LOG_W("mqtt", "Switch backlight failed: lbl not ready");
+            app_state_push_log(state, "Switch backlight failed: lbl not ready");
         }
     }
 }

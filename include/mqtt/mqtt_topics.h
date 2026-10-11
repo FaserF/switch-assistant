@@ -12,6 +12,7 @@ void mqtt_discovery_topic(const AppConfig *config, const char *component, const 
 
 void mqtt_notification_topic(const AppConfig *config, const char *mode, char *topic, size_t topic_size);
 void mqtt_notification_status_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_command_topic(const AppConfig *config, char *topic, size_t topic_size);
 
 void mqtt_remote_send_command_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_remote_set_topic(const AppConfig *config, char *topic, size_t topic_size);

@@ -119,8 +119,10 @@ static void mqtt_loop(void *arg) {
         char ams_update_cmd_topic[192];
         char br_cmd_topic[192];
         char bl_cmd_topic[192];
+        char dev_cmd_topic[192];
         char logs_cmd_topic[192];
         snprintf(command_topic, sizeof(command_topic), "%s/command", prefix);
+        mqtt_command_topic(&config, dev_cmd_topic, sizeof(dev_cmd_topic));
         mqtt_remote_send_command_topic(&config, send_cmd_topic, sizeof(send_cmd_topic));
         mqtt_remote_set_topic(&config, cmd_set_topic, sizeof(cmd_set_topic));
         mqtt_media_player_command_topic(&config, mp_cmd_topic, sizeof(mp_cmd_topic));
@@ -137,6 +139,9 @@ static void mqtt_loop(void *arg) {
         mqtt_backlight_cmd_topic(&config, bl_cmd_topic, sizeof(bl_cmd_topic));
         mqtt_logs_command_topic(&config, logs_cmd_topic, sizeof(logs_cmd_topic));
         mqtt_send_subscribe(fd, command_topic);
+        if (strcmp(command_topic, dev_cmd_topic) != 0) {
+            mqtt_send_subscribe(fd, dev_cmd_topic);
+        }
         mqtt_send_subscribe(fd, send_cmd_topic);
         mqtt_send_subscribe(fd, cmd_set_topic);
         mqtt_send_subscribe(fd, mp_cmd_topic);

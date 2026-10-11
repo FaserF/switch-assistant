@@ -166,7 +166,7 @@ static void publish_discovery_button(AppState *state, int fd, const AppConfig *c
     mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
     build_device_json_snippet(state, config, safe_id, dev_json, sizeof(dev_json));
     mqtt_discovery_topic(config, "button", button, topic, sizeof(topic));
-    snprintf(command_topic, sizeof(command_topic), "%s/command", config->mqtt_topic_prefix);
+    mqtt_command_topic(config, command_topic, sizeof(command_topic));
 
     snprintf(payload, sizeof(payload),
              "{\"name\":\"%s\",\"uniq_id\":\"%s_%s\",\"cmd_t\":\"%s\",\"payload_press\":\"%s\",%s}",
@@ -641,8 +641,18 @@ void mqtt_clear_old_discovery_topics(AppState *state, int fd, const AppConfig *c
         for (int p = 0; old_ids[p] != NULL; p++) {
             for (int e = 0; old_entities[e].comp != NULL; e++) {
                 char old_topic[256];
+                // Format 1: homeassistant/<component>/<device_id>/<sensor>/config
                 snprintf(old_topic, sizeof(old_topic),
                          "%s/%s/%s/%s/config",
+                         disc_prefix,
+                         old_entities[e].comp,
+                         old_ids[p],
+                         old_entities[e].sensor);
+                mqtt_send_publish(fd, old_topic, "", true);
+
+                // Format 2: homeassistant/<component>/<device_id>_<sensor>/config
+                snprintf(old_topic, sizeof(old_topic),
+                         "%s/%s/%s_%s/config",
                          disc_prefix,
                          old_entities[e].comp,
                          old_ids[p],
