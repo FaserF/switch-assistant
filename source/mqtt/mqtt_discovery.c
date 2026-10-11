@@ -289,12 +289,16 @@ static void publish_discovery_remote(AppState *state, int fd, const AppConfig *c
     mqtt_remote_activity_cmd_topic(config, act_cmd_top, sizeof(act_cmd_top));
     mqtt_remote_activity_state_topic(config, act_stat_top, sizeof(act_stat_top));
 
-    char options_json[16384];
-    title_cache_build_json_options_array(options_json, sizeof(options_json));
+    char *options_json = malloc(16384);
+    if (!options_json) {
+        return;
+    }
+    title_cache_build_json_options_array(options_json, 16384);
 
-    size_t payload_size = sizeof(options_json) + 2048;
+    size_t payload_size = 16384 + 2048;
     char *payload = malloc(payload_size);
     if (!payload) {
+        free(options_json);
         return;
     }
 
@@ -315,6 +319,7 @@ static void publish_discovery_remote(AppState *state, int fd, const AppConfig *c
 
     mqtt_send_publish(fd, topic, payload, true);
     free(payload);
+    free(options_json);
 }
 
 static void publish_discovery_media_player(AppState *state, int fd, const AppConfig *config) {
@@ -342,12 +347,16 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
     mqtt_media_player_title_topic(config, title_stat_top, sizeof(title_stat_top));
     mqtt_media_player_attr_topic(config, attr_stat_top, sizeof(attr_stat_top));
 
-    char options_json[16384];
-    title_cache_build_json_options_array(options_json, sizeof(options_json));
+    char *options_json = malloc(16384);
+    if (!options_json) {
+        return;
+    }
+    title_cache_build_json_options_array(options_json, 16384);
 
-    size_t payload_size = sizeof(options_json) + 4096;
+    size_t payload_size = 16384 + 4096;
     char *payload = malloc(payload_size);
     if (!payload) {
+        free(options_json);
         return;
     }
 
@@ -375,6 +384,7 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
 
     mqtt_send_publish(fd, topic, payload, true);
     free(payload);
+    free(options_json);
 }
 
 static void publish_discovery_select_game(AppState *state, int fd, const AppConfig *config) {
@@ -390,12 +400,16 @@ static void publish_discovery_select_game(AppState *state, int fd, const AppConf
     mqtt_select_game_cmd_topic(config, cmd_topic, sizeof(cmd_topic));
     mqtt_select_game_state_topic(config, stat_topic, sizeof(stat_topic));
 
-    char options_json[16384];
-    title_cache_build_json_options_array(options_json, sizeof(options_json));
+    char *options_json = malloc(16384);
+    if (!options_json) {
+        return;
+    }
+    title_cache_build_json_options_array(options_json, 16384);
 
-    size_t payload_size = sizeof(options_json) + 2048;
+    size_t payload_size = 16384 + 2048;
     char *payload = malloc(payload_size);
     if (!payload) {
+        free(options_json);
         return;
     }
 
@@ -412,6 +426,7 @@ static void publish_discovery_select_game(AppState *state, int fd, const AppConf
 
     mqtt_send_publish(fd, topic, payload, true);
     free(payload);
+    free(options_json);
 }
 
 static void publish_discovery_select_game_players(AppState *state, int fd, const AppConfig *config, const char *sensor, const char *name, int min_players, const char *icon) {
@@ -436,12 +451,16 @@ static void publish_discovery_select_game_players(AppState *state, int fd, const
         mqtt_select_game_8p_state_topic(config, stat_topic, sizeof(stat_topic));
     }
 
-    char options_json[16384];
-    title_cache_build_json_options_array_for_players(options_json, sizeof(options_json), min_players);
+    char *options_json = malloc(16384);
+    if (!options_json) {
+        return;
+    }
+    title_cache_build_json_options_array_for_players(options_json, 16384, min_players);
 
-    size_t payload_size = sizeof(options_json) + 2048;
+    size_t payload_size = 16384 + 2048;
     char *payload = malloc(payload_size);
     if (!payload) {
+        free(options_json);
         return;
     }
 
@@ -461,6 +480,7 @@ static void publish_discovery_select_game_players(AppState *state, int fd, const
 
     mqtt_send_publish(fd, topic, payload, true);
     free(payload);
+    free(options_json);
 }
 
 static void publish_discovery_sensor_games_count(AppState *state, int fd, const AppConfig *config, const char *sensor, const char *name, const char *icon) {

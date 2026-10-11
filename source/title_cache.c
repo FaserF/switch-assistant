@@ -589,10 +589,15 @@ void title_cache_build_json_games_attr(char *out, size_t out_size, int min_playe
         }
     }
 
-    char games_json[8192];
-    title_cache_build_json_games_list_for_attr(games_json, sizeof(games_json), min_players);
+    char *games_json = malloc(8192);
+    if (!games_json) {
+        snprintf(out, out_size, "{\"count\":%zu,\"min_players\":%d,\"games\":[]}", count, min_players);
+        return;
+    }
+    title_cache_build_json_games_list_for_attr(games_json, 8192, min_players);
 
     snprintf(out, out_size, "{\"count\":%zu,\"min_players\":%d,\"games\":%s}", count, min_players, games_json);
+    free(games_json);
 }
 
 bool title_cache_find_application_id_by_name(const char *name, u64 *out_application_id) {

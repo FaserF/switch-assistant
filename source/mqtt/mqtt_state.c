@@ -560,30 +560,38 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         mqtt_send_publish(fd, sel_8p_top, current_players >= 8 ? current_game_name : "Home Menu", true);
 
         // Publish player game counts & attributes
-        char games_attr[8192];
+        char *games_attr = malloc(8192);
         char sensor_topic[192];
         char attr_top[192];
         char count_str[16];
 
-        size_t count_2p = title_cache_get_games_by_min_players(NULL, 0, 2);
-        snprintf(count_str, sizeof(count_str), "%zu", count_2p);
-        mqtt_state_topic(config, "games_2p", sensor_topic, sizeof(sensor_topic));
-        mqtt_sensor_attr_topic(config, "games_2p", attr_top, sizeof(attr_top));
-        mqtt_send_publish(fd, sensor_topic, count_str, true);
-        title_cache_build_json_games_attr(games_attr, sizeof(games_attr), 2);
-        mqtt_send_publish(fd, attr_top, games_attr, true);
+        if (games_attr) {
+            size_t count_2p = title_cache_get_games_by_min_players(NULL, 0, 2);
+            snprintf(count_str, sizeof(count_str), "%zu", count_2p);
+            mqtt_state_topic(config, "games_2p", sensor_topic, sizeof(sensor_topic));
+            mqtt_sensor_attr_topic(config, "games_2p", attr_top, sizeof(attr_top));
+            mqtt_send_publish(fd, sensor_topic, count_str, true);
+            title_cache_build_json_games_attr(games_attr, 8192, 2);
+            mqtt_send_publish(fd, attr_top, games_attr, true);
 
-        size_t count_4p = title_cache_get_games_by_min_players(NULL, 0, 4);
-        snprintf(count_str, sizeof(count_str), "%zu", count_4p);
-        mqtt_state_topic(config, "games_4p", sensor_topic, sizeof(sensor_topic));
-        mqtt_sensor_attr_topic(config, "games_4p", attr_top, sizeof(attr_top));
-        mqtt_send_publish(fd, sensor_topic, count_str, true);
-        title_cache_build_json_games_attr(games_attr, sizeof(games_attr), 4);
-        mqtt_send_publish(fd, attr_top, games_attr, true);
+            size_t count_4p = title_cache_get_games_by_min_players(NULL, 0, 4);
+            snprintf(count_str, sizeof(count_str), "%zu", count_4p);
+            mqtt_state_topic(config, "games_4p", sensor_topic, sizeof(sensor_topic));
+            mqtt_sensor_attr_topic(config, "games_4p", attr_top, sizeof(attr_top));
+            mqtt_send_publish(fd, sensor_topic, count_str, true);
+            title_cache_build_json_games_attr(games_attr, 8192, 4);
+            mqtt_send_publish(fd, attr_top, games_attr, true);
 
-        size_t count_8p = title_cache_get_games_by_min_players(NULL, 0, 8);
-        snprintf(count_str, sizeof(count_str), "%zu", count_8p);
-        mqtt_state_topic(config, "games_8p", sensor_topic, sizeof(sensor_topic));
+            size_t count_8p = title_cache_get_games_by_min_players(NULL, 0, 8);
+            snprintf(count_str, sizeof(count_str), "%zu", count_8p);
+            mqtt_state_topic(config, "games_8p", sensor_topic, sizeof(sensor_topic));
+            mqtt_sensor_attr_topic(config, "games_8p", attr_top, sizeof(attr_top));
+            mqtt_send_publish(fd, sensor_topic, count_str, true);
+            title_cache_build_json_games_attr(games_attr, 8192, 8);
+            mqtt_send_publish(fd, attr_top, games_attr, true);
+
+            free(games_attr);
+        }
     }
 
     {

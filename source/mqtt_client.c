@@ -253,7 +253,7 @@ bool mqtt_service_start(AppState *state) {
     state->mqtt_running = true;
     mutexUnlock(&state->lock);
     g_ctx.socket_fd = -1;
-    g_ctx.active = R_SUCCEEDED(threadCreate(&g_ctx.thread, mqtt_loop, state, NULL, 0x8000, 0x2B, -2));
+    g_ctx.active = R_SUCCEEDED(threadCreate(&g_ctx.thread, mqtt_loop, state, NULL, 0x20000, 0x2B, -2));
     if (!g_ctx.active) {
         app_state_push_log(state, "Failed to start MQTT thread");
         return false;
