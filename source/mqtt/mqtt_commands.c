@@ -93,7 +93,34 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
         }
     } else if (strcasecmp(cmd, "close_game") == 0 || strcasecmp(cmd, "close") == 0 || strcasecmp(cmd, "exit_game") == 0) {
         app_state_push_log(state, "Remote close game requested");
-        libappletRequestHomeMenu();
+        bool terminated = false;
+        if (state->svc_pminfo_ready) {
+            u64 process_ids[96];
+            s32 process_count = 0;
+            if (R_SUCCEEDED(svcGetProcessList(&process_count, process_ids, 96))) {
+                if (process_count > 96) process_count = 96;
+                for (s32 i = 0; i < process_count; ++i) {
+                    u64 prog_id = 0;
+                    if (R_SUCCEEDED(pminfoGetProgramId(&prog_id, process_ids[i])) && prog_id != 0) {
+                        char name[128];
+                        if (title_cache_lookup(prog_id, name, sizeof(name))) {
+                            LOG_I("mqtt", "Terminating running game pid=%llu prog=0x%016llx (%s)",
+                                  (unsigned long long)process_ids[i], (unsigned long long)prog_id, name);
+                            Handle proc_handle = 0;
+                            // Attempt to terminate application process
+                            Result rc_term = svcTerminateProcess(process_ids[i]);
+                            LOG_I("mqtt", "svcTerminateProcess rc=0x%x", rc_term);
+                            (void)proc_handle;
+                            terminated = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!terminated) {
+            libappletRequestHomeMenu();
+        }
         mutexLock(&state->lock);
         state->sensor_publish_requested = true;
         mutexUnlock(&state->lock);
@@ -619,7 +646,11 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
         return;
     }
 
-    int payload_len = size - pos;
+    int packet_len = 1 + remaining_bytes + remaining;
+    if (packet_len > size) {
+        packet_len = size;
+    }
+    int payload_len = packet_len - pos;
     if (payload_len <= 0) {
         return;
     }

@@ -138,9 +138,13 @@ static void mqtt_loop(void *arg) {
         mqtt_brightness_cmd_topic(&config, br_cmd_topic, sizeof(br_cmd_topic));
         mqtt_backlight_cmd_topic(&config, bl_cmd_topic, sizeof(bl_cmd_topic));
         mqtt_logs_command_topic(&config, logs_cmd_topic, sizeof(logs_cmd_topic));
-        mqtt_send_subscribe(fd, command_topic);
+        char wildcard_topic[192];
+        char safe_id[80];
+        mqtt_sanitize_id(mqtt_client_id_or_device(&config), safe_id, sizeof(safe_id));
+        snprintf(wildcard_topic, sizeof(wildcard_topic), "switch_ha/%s/#", safe_id);
+        mqtt_send_subscribe(fd, wildcard_topic);
         if (strcmp(command_topic, dev_cmd_topic) != 0) {
-            mqtt_send_subscribe(fd, dev_cmd_topic);
+            mqtt_send_subscribe(fd, command_topic);
         }
         mqtt_send_subscribe(fd, send_cmd_topic);
         mqtt_send_subscribe(fd, cmd_set_topic);
@@ -195,8 +199,22 @@ static void mqtt_loop(void *arg) {
                 if (size <= 0) {
                     break;
                 }
-                if ((buffer[0] & 0xF0) == 0x30) {
-                    mqtt_handle_publish(state, fd, &config, buffer, size);
+                int offset = 0;
+                while (offset < size) {
+                    unsigned char ptype = buffer[offset] & 0xF0;
+                    int remaining = 0;
+                    int remaining_bytes = 0;
+                    if (!mqtt_read_remaining_length(buffer + offset, size - offset, &remaining, &remaining_bytes)) {
+                        break;
+                    }
+                    int packet_len = 1 + remaining_bytes + remaining;
+                    if (packet_len <= 0 || offset + packet_len > size) {
+                        break;
+                    }
+                    if (ptype == 0x30) {
+                        mqtt_handle_publish(state, fd, &config, buffer + offset, packet_len);
+                    }
+                    offset += packet_len;
                 }
             }
 
