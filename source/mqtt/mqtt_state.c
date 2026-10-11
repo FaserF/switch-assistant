@@ -228,6 +228,93 @@ static void publish_if_changed(int fd, const AppConfig *config, SensorSnapshot *
     }
 }
 
+void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, char *ams_ver, size_t ams_size) {
+    if (fw_ver && fw_size > 0) snprintf(fw_ver, fw_size, "Unknown");
+    if (ams_ver && ams_size > 0) snprintf(ams_ver, ams_size, "Unknown");
+
+    bool setsys_needed_close = false;
+    if (!state || !state->svc_setsys_ready) {
+        if (R_SUCCEEDED(setsysInitialize())) {
+            setsys_needed_close = true;
+            if (state) state->svc_setsys_ready = true;
+        }
+    }
+
+    SetSysFirmwareVersion fw;
+    memset(&fw, 0, sizeof(fw));
+    if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
+        if (fw.display_version[0] != '\0') {
+            const char *pipe = strchr(fw.display_version, '|');
+            if (pipe) {
+                if (fw_ver && fw_size > 0) {
+                    size_t fw_len = (size_t)(pipe - fw.display_version);
+                    if (fw_len >= fw_size) fw_len = fw_size - 1;
+                    memcpy(fw_ver, fw.display_version, fw_len);
+                    fw_ver[fw_len] = '\0';
+                }
+                const char *ams_ptr = strstr(pipe, "AMS ");
+                if (!ams_ptr) ams_ptr = strstr(pipe, "AMS");
+                if (ams_ptr) {
+                    ams_ptr += (strncmp(ams_ptr, "AMS ", 4) == 0) ? 4 : 3;
+                    if (ams_ver && ams_size > 0) {
+                        size_t idx = 0;
+                        while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && idx < ams_size - 1) {
+                            ams_ver[idx] = ams_ptr[idx];
+                            idx++;
+                        }
+                        ams_ver[idx] = '\0';
+                    }
+                }
+            } else {
+                if (fw_ver && fw_size > 0) {
+                    snprintf(fw_ver, fw_size, "%s", fw.display_version);
+                }
+            }
+        } else if (fw.major != 0) {
+            if (fw_ver && fw_size > 0) {
+                snprintf(fw_ver, fw_size, "%u.%u.%u", fw.major, fw.minor, fw.micro);
+            }
+        }
+    }
+
+    if (setsys_needed_close && (!state || !state->svc_setsys_ready)) {
+        setsysExit();
+    }
+
+    // Try spl service for Atmosphere/Exosphere version if ams_ver is still Unknown
+    if (ams_ver && strcmp(ams_ver, "Unknown") == 0) {
+        if (R_SUCCEEDED(splInitialize())) {
+            u64 exosphere_ver = 0;
+            if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
+                u32 major = 0, minor = 0, micro = 0;
+                if ((exosphere_ver >> 24) & 0xFF) {
+                    major = (exosphere_ver >> 24) & 0xFF;
+                    minor = (exosphere_ver >> 16) & 0xFF;
+                    micro = (exosphere_ver >> 8) & 0xFF;
+                } else {
+                    major = (exosphere_ver >> 16) & 0xFF;
+                    minor = (exosphere_ver >> 8) & 0xFF;
+                    micro = exosphere_ver & 0xFF;
+                }
+                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+            } else if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65001, &exosphere_ver)) && exosphere_ver > 0) {
+                u32 major = 0, minor = 0, micro = 0;
+                if ((exosphere_ver >> 24) & 0xFF) {
+                    major = (exosphere_ver >> 24) & 0xFF;
+                    minor = (exosphere_ver >> 16) & 0xFF;
+                    micro = (exosphere_ver >> 8) & 0xFF;
+                } else {
+                    major = (exosphere_ver >> 16) & 0xFF;
+                    minor = (exosphere_ver >> 8) & 0xFF;
+                    micro = exosphere_ver & 0xFF;
+                }
+                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+            }
+            splExit();
+        }
+    }
+}
+
 void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *config, SensorSnapshot *snapshot, bool force) {
     char value[64];
     u32 percent = 0;
@@ -497,97 +584,7 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         size_t count_8p = title_cache_get_games_by_min_players(NULL, 0, 8);
         snprintf(count_str, sizeof(count_str), "%zu", count_8p);
         mqtt_state_topic(config, "games_8p", sensor_topic, sizeof(sensor_topic));
-        mqtt_sensor_attr_topic(config, "games_8p", attr_top, sizeof(attr_top));
-        mqtt_send_publish(fd, sensor_topic, count_str, true);
-        title_cache_build_json_games_attr(games_attr, sizeof(games_attr), 8);
-        mqtt_send_publish(fd, attr_top, games_attr, true);
     }
-void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, char *ams_ver, size_t ams_size) {
-    if (fw_ver && fw_size > 0) snprintf(fw_ver, fw_size, "Unknown");
-    if (ams_ver && ams_size > 0) snprintf(ams_ver, ams_size, "Unknown");
-
-    bool setsys_needed_close = false;
-    if (!state || !state->svc_setsys_ready) {
-        if (R_SUCCEEDED(setsysInitialize())) {
-            setsys_needed_close = true;
-            if (state) state->svc_setsys_ready = true;
-        }
-    }
-
-    SetSysFirmwareVersion fw;
-    memset(&fw, 0, sizeof(fw));
-    if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
-        if (fw.display_version[0] != '\0') {
-            const char *pipe = strchr(fw.display_version, '|');
-            if (pipe) {
-                if (fw_ver && fw_size > 0) {
-                    size_t fw_len = (size_t)(pipe - fw.display_version);
-                    if (fw_len >= fw_size) fw_len = fw_size - 1;
-                    memcpy(fw_ver, fw.display_version, fw_len);
-                    fw_ver[fw_len] = '\0';
-                }
-                const char *ams_ptr = strstr(pipe, "AMS ");
-                if (!ams_ptr) ams_ptr = strstr(pipe, "AMS");
-                if (ams_ptr) {
-                    ams_ptr += (strncmp(ams_ptr, "AMS ", 4) == 0) ? 4 : 3;
-                    if (ams_ver && ams_size > 0) {
-                        size_t idx = 0;
-                        while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && idx < ams_size - 1) {
-                            ams_ver[idx] = ams_ptr[idx];
-                            idx++;
-                        }
-                        ams_ver[idx] = '\0';
-                    }
-                }
-            } else {
-                if (fw_ver && fw_size > 0) {
-                    snprintf(fw_ver, fw_size, "%s", fw.display_version);
-                }
-            }
-        } else if (fw.major != 0) {
-            if (fw_ver && fw_size > 0) {
-                snprintf(fw_ver, fw_size, "%u.%u.%u", fw.major, fw.minor, fw.micro);
-            }
-        }
-    }
-
-    if (setsys_needed_close && (!state || !state->svc_setsys_ready)) {
-        setsysExit();
-    }
-
-    // Try spl service for Atmosphere/Exosphere version if ams_ver is still Unknown
-    if (ams_ver && strcmp(ams_ver, "Unknown") == 0) {
-        if (R_SUCCEEDED(splInitialize())) {
-            u64 exosphere_ver = 0;
-            if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
-                u32 major = 0, minor = 0, micro = 0;
-                if ((exosphere_ver >> 24) & 0xFF) {
-                    major = (exosphere_ver >> 24) & 0xFF;
-                    minor = (exosphere_ver >> 16) & 0xFF;
-                    micro = (exosphere_ver >> 8) & 0xFF;
-                } else {
-                    major = (exosphere_ver >> 16) & 0xFF;
-                    minor = (exosphere_ver >> 8) & 0xFF;
-                    micro = exosphere_ver & 0xFF;
-                }
-                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
-            } else if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65001, &exosphere_ver)) && exosphere_ver > 0) {
-                u32 major = 0, minor = 0, micro = 0;
-                if ((exosphere_ver >> 24) & 0xFF) {
-                    major = (exosphere_ver >> 24) & 0xFF;
-                    minor = (exosphere_ver >> 16) & 0xFF;
-                    micro = (exosphere_ver >> 8) & 0xFF;
-                } else {
-                    major = (exosphere_ver >> 16) & 0xFF;
-                    minor = (exosphere_ver >> 8) & 0xFF;
-                    micro = exosphere_ver & 0xFF;
-                }
-                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
-            }
-            splExit();
-        }
-    }
-}
 
     {
         char update_top[192];

@@ -315,7 +315,7 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
     char options_json[16384];
     title_cache_build_json_options_array(options_json, sizeof(options_json));
 
-    size_t payload_size = sizeof(options_json) + 2048;
+    size_t payload_size = sizeof(options_json) + 4096;
     char *payload = malloc(payload_size);
     if (!payload) {
         return;
