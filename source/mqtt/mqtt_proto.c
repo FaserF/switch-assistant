@@ -1,4 +1,5 @@
 #include "mqtt/mqtt_proto.h"
+#include "mqtt/mqtt_topics.h"
 
 #include <switch.h>
 
