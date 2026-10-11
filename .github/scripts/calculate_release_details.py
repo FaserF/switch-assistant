@@ -195,7 +195,10 @@ def main():
             if changelog_from:
                 cl_args.extend(["--from-tag", changelog_from])
             # Pass upstream baseline info for first-release note
-            if is_first_release and "--upstream-ref" in open(script_path, encoding="utf-8").read():
+            if (
+                is_first_release
+                and "--upstream-ref" in open(script_path, encoding="utf-8").read()
+            ):
                 cl_args.extend(["--upstream-ref", UPSTREAM_BASELINE_TAG])
                 cl_args.extend(["--upstream-url", UPSTREAM_RELEASE_URL])
             subprocess.run(cl_args, check=True)
