@@ -633,7 +633,7 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     // Advanced battery telemetry -> disabled by default
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "charger_type", "Charger Type", NULL, NULL, NULL, "diagnostic", "mdi:power-plug");
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "battery_voltage", "Battery Voltage", "voltage", "mV", "measurement", "diagnostic", "mdi:sine-wave");
-    publish_discovery_sensor_disabled(state, fd, config, "sensor", "battery_temperature", "Battery Temperature", "temperature", "°C", "measurement", "diagnostic", "mdi:thermometer");
+    publish_discovery_sensor_disabled(state, fd, config, "sensor", "battery_temperature", "Battery Temperature", "temperature", "\xc2\xb0" "C", "measurement", "diagnostic", "mdi:thermometer");
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "battery_health", "Battery Health", NULL, "%", "measurement", "diagnostic", "mdi:battery-heart-variant");
 
     if (state->svc_lbl_ready) {
@@ -700,7 +700,7 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     publish_discovery_event(state, fd, config);
     publish_discovery_sensor(state, fd, config, "binary_sensor", "docked", "Docked", "plug", NULL, NULL);
     if (state->svc_ts_ready) {
-        publish_discovery_sensor_disabled(state, fd, config, "sensor", "soc_temperature", "SoC Temperature", "temperature", "°C", "measurement", "diagnostic", "mdi:thermometer-lines");
+        publish_discovery_sensor_disabled(state, fd, config, "sensor", "soc_temperature", "SoC Temperature", "temperature", "\xc2\xb0" "C", "measurement", "diagnostic", "mdi:thermometer-lines");
     }
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "uptime", "Uptime", "duration", "s", "total_increasing", "diagnostic", "mdi:clock-outline");
     if (state->svc_nifm_ready) {
