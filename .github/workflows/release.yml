@@ -186,9 +186,9 @@ jobs:
         run: |
           set -euo pipefail
           docker pull devkitpro/devkita64
-          docker run --rm -v "$PWD:/workspace" -w /workspace/sysmodule devkitpro/devkita64 /bin/bash -lc "make install-layout"
-          docker run --rm -v "$PWD:/workspace" -w /workspace/overlay devkitpro/devkita64 /bin/bash -lc "make"
-          docker run --rm -v "$PWD:/workspace" -w /workspace/overlay-loader devkitpro/devkita64 /bin/bash -lc "make install-layout"
+          docker run --rm -v "$PWD:/workspace" -w /workspace/sysmodule devkitpro/devkita64 /bin/bash -lc "make install-layout APP_VERSION='${{ needs.versioning.outputs.version }}'"
+          docker run --rm -v "$PWD:/workspace" -w /workspace/overlay devkitpro/devkita64 /bin/bash -lc "make APP_VERSION='${{ needs.versioning.outputs.version }}'"
+          docker run --rm -v "$PWD:/workspace" -w /workspace/overlay-loader devkitpro/devkita64 /bin/bash -lc "make install-layout APP_VERSION='${{ needs.versioning.outputs.version }}'"
           mkdir -p romfs/sysmodule
           cp sysmodule/atmosphere/contents/00FF000053484101/exefs.nsp romfs/sysmodule/exefs.nsp
           : > romfs/sysmodule/boot2.flag
@@ -198,7 +198,7 @@ jobs:
           mkdir -p romfs/overlay
           cp overlay/switch-ha-overlay.ovl romfs/overlay/switch-ha-overlay.ovl
           rm -rf build switch-ha.elf switch-ha.nro
-          docker run --rm -v "$PWD:/workspace" -w /workspace devkitpro/devkita64 /bin/bash -lc "make"
+          docker run --rm -v "$PWD:/workspace" -w /workspace devkitpro/devkita64 /bin/bash -lc "make APP_VERSION='${{ needs.versioning.outputs.version }}'"
 
       - name: Download Release Body Artifact
         uses: actions/download-artifact@v8
