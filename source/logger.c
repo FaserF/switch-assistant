@@ -209,19 +209,9 @@ static void escape_json_string(const char *in, char *out, size_t out_size) {
 size_t logger_dump_diagnostics_json(AppState *state, const AppConfig *config, char *out_buf, size_t out_size) {
     if (!out_buf || out_size == 0) return 0;
 
-    char fw_ver[64] = "Unknown";
-    char ams_ver[64] = "Unknown";
-    mqtt_get_system_versions(state, fw_ver, sizeof(fw_ver), ams_ver, sizeof(ams_ver));
-
-    char mac_str[32] = "00:00:00:00:00:00";
-    if (R_SUCCEEDED(setcalInitialize())) {
-        SetCalMacAddress mac = {0};
-        if (R_SUCCEEDED(setcalGetWirelessLanMacAddress(&mac))) {
-            snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
-                     mac.addr[0], mac.addr[1], mac.addr[2], mac.addr[3], mac.addr[4], mac.addr[5]);
-        }
-        setcalExit();
-    }
+    const char *fw_ver = (state && state->cached_firmware_ver[0] != '\0') ? state->cached_firmware_ver : "Unknown";
+    const char *ams_ver = (state && state->cached_atmosphere_ver[0] != '\0') ? state->cached_atmosphere_ver : "Unknown";
+    const char *mac_str = (state && state->cached_mac[0] != '\0') ? state->cached_mac : "00:00:00:00:00:00";
 
     u32 rssi = 0;
     if (state && state->svc_nifm_ready) {

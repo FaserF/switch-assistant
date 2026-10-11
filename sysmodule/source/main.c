@@ -361,6 +361,7 @@ int main(int argc, char **argv) {
     apply_startup_delay(&state.config);
     init_core_services(&state);
     init_optional_services(&state);
+    app_state_refresh_device_info(&state);
     screen_stream_start(&state);
     init_power_guard(&state);
 

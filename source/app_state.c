@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "mqtt/mqtt_state.h"
+
 void app_state_init(AppState *state) {
     memset(state, 0, sizeof(*state));
     mutexInit(&state->lock);
@@ -12,6 +14,31 @@ void app_state_init(AppState *state) {
     snprintf(state->config_status, sizeof(state->config_status), "not loaded");
     snprintf(state->mqtt_last_error, sizeof(state->mqtt_last_error), "not connected");
     snprintf(state->game_status, sizeof(state->game_status), "not checked");
+}
+
+void app_state_refresh_device_info(AppState *state) {
+    if (!state) return;
+
+    mutexLock(&state->lock);
+    if (state->cached_mac[0] == '\0') {
+        if (R_SUCCEEDED(setcalInitialize())) {
+            SetCalMacAddress mac = {0};
+            if (R_SUCCEEDED(setcalGetWirelessLanMacAddress(&mac))) {
+                if (mac.addr[0] != 0 || mac.addr[1] != 0 || mac.addr[2] != 0 ||
+                    mac.addr[3] != 0 || mac.addr[4] != 0 || mac.addr[5] != 0) {
+                    snprintf(state->cached_mac, sizeof(state->cached_mac), "%02x:%02x:%02x:%02x:%02x:%02x",
+                             mac.addr[0], mac.addr[1], mac.addr[2], mac.addr[3], mac.addr[4], mac.addr[5]);
+                }
+            }
+            setcalExit();
+        }
+    }
+
+    if (state->cached_firmware_ver[0] == '\0' || strcmp(state->cached_firmware_ver, "Unknown") == 0) {
+        mqtt_get_system_versions(state, state->cached_firmware_ver, sizeof(state->cached_firmware_ver),
+                                 state->cached_atmosphere_ver, sizeof(state->cached_atmosphere_ver));
+    }
+    mutexUnlock(&state->lock);
 }
 
 static void write_line(char *dst, size_t dst_size, const char *fmt, va_list args) {

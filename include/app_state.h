@@ -57,11 +57,15 @@ typedef struct {
     char config_status[SHA_LOG_LINE];
     char mqtt_last_error[SHA_LOG_LINE];
     char game_status[SHA_LOG_LINE];
+    char cached_mac[32];
+    char cached_firmware_ver[64];
+    char cached_atmosphere_ver[64];
     AppMode app_mode;
     char log_lines[SHA_MAX_LOG][SHA_LOG_LINE];
     int log_count;
 } AppState;
 
 void app_state_init(AppState *state);
+void app_state_refresh_device_info(AppState *state);
 void app_state_set_status(AppState *state, const char *fmt, ...);
 void app_state_push_log(AppState *state, const char *fmt, ...);

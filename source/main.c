@@ -268,6 +268,7 @@ int main(int argc, char **argv) {
     }
 
     install_sysmodule(&state);
+    app_state_refresh_device_info(&state);
 
     app_state_push_log(&state, "Initial connection test");
     app_state_set_status(&state, "Testing HA and MQTT...");

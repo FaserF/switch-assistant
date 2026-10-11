@@ -13,7 +13,7 @@
 	"enable_alias_region_extra_size":	false,
 	"prevent_code_reads":	false,
 	"signature_key_generation":	0,
-	"main_thread_stack_size":	"0x00008000",
+	"main_thread_stack_size":	"0x00010000",
 	"main_thread_priority":	44,
 	"default_cpu_id":	3,
 	"process_category":	0,

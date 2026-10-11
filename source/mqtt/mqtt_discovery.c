@@ -10,23 +10,14 @@
 static void get_system_device_info(AppState *state, char *mac_str, size_t mac_size, char *fw_str, size_t fw_size) {
     if (mac_str && mac_size > 0) {
         mac_str[0] = '\0';
-        if (R_SUCCEEDED(setcalInitialize())) {
-            SetCalMacAddress mac = {0};
-            if (R_SUCCEEDED(setcalGetWirelessLanMacAddress(&mac))) {
-                if (mac.addr[0] != 0 || mac.addr[1] != 0 || mac.addr[2] != 0 ||
-                    mac.addr[3] != 0 || mac.addr[4] != 0 || mac.addr[5] != 0) {
-                    snprintf(mac_str, mac_size, "%02x:%02x:%02x:%02x:%02x:%02x",
-                             mac.addr[0], mac.addr[1], mac.addr[2], mac.addr[3], mac.addr[4], mac.addr[5]);
-                }
-            }
-            setcalExit();
+        if (state && state->cached_mac[0] != '\0') {
+            snprintf(mac_str, mac_size, "%s", state->cached_mac);
         }
     }
 
     if (fw_str && fw_size > 0) {
-        char fw_ver[64] = "Unknown";
-        char ams_ver[64] = "Unknown";
-        mqtt_get_system_versions(state, fw_ver, sizeof(fw_ver), ams_ver, sizeof(ams_ver));
+        const char *fw_ver = (state && state->cached_firmware_ver[0] != '\0') ? state->cached_firmware_ver : "Unknown";
+        const char *ams_ver = (state && state->cached_atmosphere_ver[0] != '\0') ? state->cached_atmosphere_ver : "Unknown";
 
         if (strcmp(ams_ver, "Unknown") != 0 && strcmp(fw_ver, "Unknown") != 0) {
             snprintf(fw_str, fw_size, "%s (AMS %s)", fw_ver, ams_ver);
