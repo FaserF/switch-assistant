@@ -8,7 +8,6 @@
 #include <switch/services/ts.h>
 #include <switch/services/nifm.h>
 #include <switch/services/fs.h>
-#include <switch/services/setcal.h>
 #include <switch/services/setsys.h>
 #include <switch/services/spl.h>
 
