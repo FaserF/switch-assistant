@@ -252,22 +252,24 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
                     memcpy(fw_ver, fw.display_version, fw_len);
                     fw_ver[fw_len] = '\0';
                 }
-                const char *ams_ptr = strstr(pipe, "AMS ");
-                if (!ams_ptr) ams_ptr = strstr(pipe, "AMS");
-                if (ams_ptr) {
-                    ams_ptr += (strncmp(ams_ptr, "AMS ", 4) == 0) ? 4 : 3;
-                    if (ams_ver && ams_size > 0) {
-                        size_t idx = 0;
-                        while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && idx < ams_size - 1) {
-                            ams_ver[idx] = ams_ptr[idx];
-                            idx++;
-                        }
-                        ams_ver[idx] = '\0';
-                    }
-                }
             } else {
                 if (fw_ver && fw_size > 0) {
                     snprintf(fw_ver, fw_size, "%s", fw.display_version);
+                }
+            }
+
+            const char *ams_ptr = strstr(fw.display_version, "AMS");
+            if (!ams_ptr) ams_ptr = strstr(fw.display_version, "ams");
+            if (ams_ptr) {
+                ams_ptr += 3;
+                while (*ams_ptr == ' ' || *ams_ptr == '_' || *ams_ptr == '-' || *ams_ptr == ':') ams_ptr++;
+                if (ams_ver && ams_size > 0) {
+                    size_t idx = 0;
+                    while (ams_ptr[idx] && ams_ptr[idx] != '|' && ams_ptr[idx] != ' ' && ams_ptr[idx] != ')' && ams_ptr[idx] != '/' && idx < ams_size - 1) {
+                        ams_ver[idx] = ams_ptr[idx];
+                        idx++;
+                    }
+                    ams_ver[idx] = '\0';
                 }
             }
         } else if (fw.major != 0) {
@@ -282,32 +284,29 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
     }
 
     // Try spl service for Atmosphere/Exosphere version if ams_ver is still Unknown
-    if (ams_ver && strcmp(ams_ver, "Unknown") == 0) {
+    if (ams_ver && (strcmp(ams_ver, "Unknown") == 0 || ams_ver[0] == '\0')) {
+        bool spl_init_local = false;
+        if (R_SUCCEEDED(splInitialize())) {
+            spl_init_local = true;
+        }
         u64 exosphere_ver = 0;
         if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
-            u32 major = 0, minor = 0, micro = 0;
-            if ((exosphere_ver >> 24) & 0xFF) {
-                major = (exosphere_ver >> 24) & 0xFF;
-                minor = (exosphere_ver >> 16) & 0xFF;
-                micro = (exosphere_ver >> 8) & 0xFF;
-            } else {
-                major = (exosphere_ver >> 16) & 0xFF;
-                minor = (exosphere_ver >> 8) & 0xFF;
-                micro = exosphere_ver & 0xFF;
+            u32 major = (exosphere_ver >> 24) & 0xFF;
+            u32 minor = (exosphere_ver >> 16) & 0xFF;
+            u32 micro = (exosphere_ver >> 8) & 0xFF;
+            if (major != 0 || minor != 0 || micro != 0) {
+                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
             }
-            snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
         } else if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65001, &exosphere_ver)) && exosphere_ver > 0) {
-            u32 major = 0, minor = 0, micro = 0;
-            if ((exosphere_ver >> 24) & 0xFF) {
-                major = (exosphere_ver >> 24) & 0xFF;
-                minor = (exosphere_ver >> 16) & 0xFF;
-                micro = (exosphere_ver >> 8) & 0xFF;
-            } else {
-                major = (exosphere_ver >> 16) & 0xFF;
-                minor = (exosphere_ver >> 8) & 0xFF;
-                micro = exosphere_ver & 0xFF;
+            u32 major = (exosphere_ver >> 24) & 0xFF;
+            u32 minor = (exosphere_ver >> 16) & 0xFF;
+            u32 micro = (exosphere_ver >> 8) & 0xFF;
+            if (major != 0 || minor != 0 || micro != 0) {
+                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
             }
-            snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+        }
+        if (spl_init_local && (!state || state->app_mode != AppMode_Sysmodule)) {
+            splExit();
         }
     }
 }
@@ -599,7 +598,21 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
 
         char fw_ver[64] = "Unknown";
         char ams_ver[64] = "Unknown";
-        mqtt_get_system_versions(state, fw_ver, sizeof(fw_ver), ams_ver, sizeof(ams_ver));
+        if (state && state->cached_firmware_ver[0] != '\0' && strcmp(state->cached_firmware_ver, "Unknown") != 0) {
+            snprintf(fw_ver, sizeof(fw_ver), "%s", state->cached_firmware_ver);
+        }
+        if (state && state->cached_atmosphere_ver[0] != '\0' && strcmp(state->cached_atmosphere_ver, "Unknown") != 0) {
+            snprintf(ams_ver, sizeof(ams_ver), "%s", state->cached_atmosphere_ver);
+        }
+        if (strcmp(fw_ver, "Unknown") == 0 || strcmp(ams_ver, "Unknown") == 0) {
+            mqtt_get_system_versions(state, fw_ver, sizeof(fw_ver), ams_ver, sizeof(ams_ver));
+            if (state) {
+                mutexLock(&state->lock);
+                if (strcmp(fw_ver, "Unknown") != 0) snprintf(state->cached_firmware_ver, sizeof(state->cached_firmware_ver), "%s", fw_ver);
+                if (strcmp(ams_ver, "Unknown") != 0) snprintf(state->cached_atmosphere_ver, sizeof(state->cached_atmosphere_ver), "%s", ams_ver);
+                mutexUnlock(&state->lock);
+            }
+        }
 
         char update_payload[256];
         snprintf(update_payload, sizeof(update_payload),
@@ -615,6 +628,10 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
                  "\"entity_picture\":\"https://avatars.githubusercontent.com/u/39328464\"}",
                  ams_ver, ams_ver);
         mqtt_send_publish(fd, ams_update_top, ams_payload, true);
+
+        char diag_state_top[192];
+        mqtt_diagnostics_state_topic(config, diag_state_top, sizeof(diag_state_top));
+        mqtt_send_publish(fd, diag_state_top, "healthy", true);
     }
     {
         AppletOperationMode op_mode = appletGetOperationMode();
