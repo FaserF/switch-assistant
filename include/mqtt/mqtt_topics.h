@@ -24,6 +24,7 @@ void mqtt_media_player_command_topic(const AppConfig *config, char *topic, size_
 void mqtt_media_player_volume_cmd_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_media_player_volume_state_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_media_player_title_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_media_player_attr_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_media_player_source_cmd_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_media_player_source_state_topic(const AppConfig *config, char *topic, size_t topic_size);
 

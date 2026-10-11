@@ -413,9 +413,11 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         char sel_2p_top[192];
         char sel_4p_top[192];
         char sel_8p_top[192];
+        char mp_attr_top[192];
         mqtt_media_player_state_topic(config, mp_state_top, sizeof(mp_state_top));
         mqtt_media_player_volume_state_topic(config, mp_vol_top, sizeof(mp_vol_top));
         mqtt_media_player_title_topic(config, mp_title_top, sizeof(mp_title_top));
+        mqtt_media_player_attr_topic(config, mp_attr_top, sizeof(mp_attr_top));
         mqtt_media_player_source_state_topic(config, mp_src_top, sizeof(mp_src_top));
         mqtt_select_game_state_topic(config, sel_game_top, sizeof(sel_game_top));
         mqtt_select_game_2p_state_topic(config, sel_2p_top, sizeof(sel_2p_top));
@@ -450,7 +452,20 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
             current_players = title_cache_get_max_players(app_id, current_game_name);
         }
 
+        char mp_attr_json[512];
+        if (strcmp(snapshot->game_running, "ON") == 0 &&
+            snapshot->current_game_id[0] != '\0' &&
+            strcmp(snapshot->current_game_id, "none") != 0 &&
+            strcmp(snapshot->current_game_id, "unknown") != 0) {
+            snprintf(mp_attr_json, sizeof(mp_attr_json),
+                     "{\"title_id\":\"%s\",\"players_max\":%d,\"entity_picture\":\"https://raw.githubusercontent.com/zhaowenlan1779/switch-titles/master/titles/%s.jpg\"}",
+                     snapshot->current_game_id, current_players, snapshot->current_game_id);
+        } else {
+            snprintf(mp_attr_json, sizeof(mp_attr_json), "{\"title_id\":\"none\",\"players_max\":0}");
+        }
+
         mqtt_send_publish(fd, mp_title_top, snapshot->current_game_name, true);
+        mqtt_send_publish(fd, mp_attr_top, mp_attr_json, true);
         mqtt_send_publish(fd, mp_src_top, current_game_name, true);
         mqtt_send_publish(fd, sel_game_top, current_game_name, true);
         mqtt_send_publish(fd, sel_2p_top, current_players >= 2 ? current_game_name : "Home Menu", true);

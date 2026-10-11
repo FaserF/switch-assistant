@@ -328,6 +328,7 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
     char src_cmd_top[192];
     char src_stat_top[192];
     char title_stat_top[192];
+    char attr_stat_top[192];
     char safe_id[80];
     char dev_json[512];
 
@@ -341,6 +342,7 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
     mqtt_media_player_source_cmd_topic(config, src_cmd_top, sizeof(src_cmd_top));
     mqtt_media_player_source_state_topic(config, src_stat_top, sizeof(src_stat_top));
     mqtt_media_player_title_topic(config, title_stat_top, sizeof(title_stat_top));
+    mqtt_media_player_attr_topic(config, attr_stat_top, sizeof(attr_stat_top));
 
     char options_json[16384];
     title_cache_build_json_options_array(options_json, sizeof(options_json));
@@ -357,6 +359,7 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
              "\"vol_cmd_t\":\"%s\",\"vol_stat_t\":\"%s\","
              "\"src_cmd_t\":\"%s\",\"src_stat_t\":\"%s\","
              "\"title_stat_t\":\"%s\","
+             "\"json_attr_t\":\"%s\","
              "\"source_list\":%s,"
              "\"dev_cla\":\"tv\","
              "\"sup_feat\":[\"turn_on\",\"turn_off\",\"volume_set\",\"volume_step\",\"volume_mute\",\"select_source\"],%s}",
@@ -368,6 +371,7 @@ static void publish_discovery_media_player(AppState *state, int fd, const AppCon
              src_cmd_top,
              src_stat_top,
              title_stat_top,
+             attr_stat_top,
              options_json,
              dev_json);
 

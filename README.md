@@ -146,7 +146,7 @@ data:
 ```
 
 ### Media Player Entity
-The media player entity automatically reflects whether the Switch is actively playing a game (`playing`), on the home menu (`idle`), or asleep (`off`). It displays the current game as the media title and allows direct volume slider control as well as source/game switching from standard media control cards.
+The media player entity automatically reflects whether the Switch is actively playing a game (`playing`), on the home menu (`idle`), or asleep (`off`). It displays the current game as the media title, renders game box cover art (`entity_picture`), exposes Title ID & player capabilities via attributes, and allows direct volume slider control as well as source/game switching from standard media control cards.
 
 ## Controlling Home Assistant Devices from an Overlay (UltraHand / Tesla / Shortcuts)
 
