@@ -262,8 +262,8 @@ size_t logger_dump_diagnostics_json(AppState *state, const AppConfig *config, ch
 
     u64 mem_used_mb = 0, mem_total_mb = 0;
     u64 val = 0;
-    if (R_SUCCEEDED(svcGetInfo(&val, InfoType_TotalPhysicalMemorySize, INVALID_HANDLE, 0))) mem_total_mb = val / (1024 * 1024);
-    if (R_SUCCEEDED(svcGetInfo(&val, InfoType_UsedPhysicalMemorySize, INVALID_HANDLE, 0))) mem_used_mb = val / (1024 * 1024);
+    if (R_SUCCEEDED(svcGetInfo(&val, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0))) mem_total_mb = val / (1024 * 1024);
+    if (R_SUCCEEDED(svcGetInfo(&val, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0))) mem_used_mb = val / (1024 * 1024);
 
     u64 uptime_s = get_uptime_seconds();
 
