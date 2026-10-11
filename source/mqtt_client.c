@@ -175,6 +175,7 @@ static void mqtt_loop(void *arg) {
 
         char avail_topic[192];
         mqtt_availability_topic(&config, avail_topic, sizeof(avail_topic));
+        mqtt_clear_old_discovery_topics(state, fd, &config);
         mqtt_send_publish(fd, avail_topic, "online", true);
         SensorSnapshot sensor_snapshot = {0};
         mqtt_publish_sensor_discovery(state, fd, &config);
