@@ -264,7 +264,8 @@ int title_cache_get_max_players(u64 application_id, const char *name) {
         "TowerFall", "Tower Fall", "Pico Park", "PicoPark", "WarioWare", "Gang Beasts", "Just Dance",
         "Virtua Tennis", "Mario Strikers", "Super Mario Strikers", "Death Squared",
         "Aeolis Tournament", "Bulanci", "Rover Wars", "Sky Gamblers", "Splatoon",
-        "Shredder's Revenge", "Party Golf", "ClusterPuck", "8 Player", "8-Player", "8 Players"
+        "Shredder's Revenge", "Party Golf", "ClusterPuck", "8 Player", "8-Player", "8 Players",
+        "Super Bomberman R", "Luigi's Mansion 3", "Super Smash Bros. Ultimate", "Runbow Deluxe"
     };
     for (size_t i = 0; i < sizeof(games_8p) / sizeof(games_8p[0]); ++i) {
         if (case_str_search(name, games_8p[i]) != NULL) {
@@ -299,7 +300,9 @@ int title_cache_get_max_players(u64 application_id, const char *name) {
         "Crawl", "Screencheat", "Astro Bears", "Timberman", "Duck Game", "Nidhogg",
         "Lethal League", "Marooners", "Party Panic", "Cake Bash", "Air Hockey",
         "Mini Golf", "Bowling", "Darts", "Billiards", "3 Card Poker", "Kart",
-        "4 Player", "4-Player", "4 Players", "Olympic Games"
+        "4 Player", "4-Player", "4 Players", "Olympic Games", "Formula Racing",
+        "Street Fighter 30th", "Astro Bot", "TowerFall Ascension", "Puyo Puyo",
+        "Tetris Effect", "Super Monkey Ball", "Golf With Your Friends", "Death Road to Canada"
     };
     for (size_t i = 0; i < sizeof(games_4p) / sizeof(games_4p[0]); ++i) {
         if (case_str_search(name, games_4p[i]) != NULL) {
@@ -323,7 +326,11 @@ int title_cache_get_max_players(u64 application_id, const char *name) {
         "Rage of the Dragons", "Rawr-Off", "Redgar", "SEA POWER", "Spirit Arena",
         "Super Dodgeball Beats", "Twin Robots", "Uragun", "Shovel Knight", "Metal Slug",
         "Contra", "Mega Man", "Hotline Miami", "Binding of Isaac", "Salt and Sanctuary",
-        "Wizard of Legend", "Battle", "Boxing", "Wrestling", "Tennis", "Chess", "Checkers"
+        "Wizard of Legend", "Battle", "Boxing", "Wrestling", "Tennis", "Chess", "Checkers",
+        "A Hole New World", "Basketball Anime Girls", "Bubble Trouble", "Drunken Fist",
+        "Dunk Trickster", "Morsels", "Piczle Colors", "Pid", "PUTRID SHOT", "Rally Racer",
+        "Rocket Knight", "Sail Forth", "Shotgun King", "Beach Boys", "Tabletop", "Ping Pong",
+        "Air Hockey 3D", "3D Air Hockey", "Football", "Soccer", "Basketball"
     };
     for (size_t i = 0; i < sizeof(games_2p) / sizeof(games_2p[0]); ++i) {
         if (case_str_search(name, games_2p[i]) != NULL) {

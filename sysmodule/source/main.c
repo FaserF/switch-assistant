@@ -52,8 +52,6 @@ void __appInit(void) {
         diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_FS));
     }
     fsdevMountSdmc();
-
-    smExit();
 }
 
 void __appExit(void) {
@@ -75,6 +73,7 @@ void __appExit(void) {
     if (R_SUCCEEDED(g_socket_init_result)) socketExit();
     fsdevUnmountAll();
     fsExit();
+    smExit();
 }
 
 static u64 monotonic_ms(void) {
@@ -211,35 +210,32 @@ typedef struct {
 
 static void optional_init_thread(void *arg) {
     OptionalInitTask *task = arg;
-    Result rc = smInitialize();
-    if (R_SUCCEEDED(rc)) {
-        switch (task->service) {
-            case OptionalService_Hid:
-                rc = hidInitialize();
-                break;
-            case OptionalService_Lbl:
-                rc = lblInitialize();
-                break;
-            case OptionalService_Audctl:
-                rc = audctlInitialize();
-                break;
-            case OptionalService_Pminfo:
-                rc = pminfoInitialize();
-                break;
-            case OptionalService_Setsys:
-                rc = setsysInitialize();
-                break;
-            case OptionalService_Spl:
-                rc = splInitialize();
-                break;
-            case OptionalService_Ts:
-                rc = tsInitialize();
-                break;
-            case OptionalService_Nifm:
-                rc = nifmInitialize(NifmServiceType_System);
-                break;
-        }
-        smExit();
+    Result rc = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+    switch (task->service) {
+        case OptionalService_Hid:
+            rc = hidInitialize();
+            break;
+        case OptionalService_Lbl:
+            rc = lblInitialize();
+            break;
+        case OptionalService_Audctl:
+            rc = audctlInitialize();
+            break;
+        case OptionalService_Pminfo:
+            rc = pminfoInitialize();
+            break;
+        case OptionalService_Setsys:
+            rc = setsysInitialize();
+            break;
+        case OptionalService_Spl:
+            rc = splInitialize();
+            break;
+        case OptionalService_Ts:
+            rc = tsInitialize();
+            break;
+        case OptionalService_Nifm:
+            rc = nifmInitialize(NifmServiceType_System);
+            break;
     }
     task->rc = rc;
     task->done = true;

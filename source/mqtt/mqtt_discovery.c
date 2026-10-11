@@ -13,8 +13,11 @@ static void get_system_device_info(AppState *state, char *mac_str, size_t mac_si
         if (R_SUCCEEDED(setcalInitialize())) {
             SetCalMacAddress mac = {0};
             if (R_SUCCEEDED(setcalGetWirelessLanMacAddress(&mac))) {
-                snprintf(mac_str, mac_size, "%02X:%02X:%02X:%02X:%02X:%02X",
-                         mac.addr[0], mac.addr[1], mac.addr[2], mac.addr[3], mac.addr[4], mac.addr[5]);
+                if (mac.addr[0] != 0 || mac.addr[1] != 0 || mac.addr[2] != 0 ||
+                    mac.addr[3] != 0 || mac.addr[4] != 0 || mac.addr[5] != 0) {
+                    snprintf(mac_str, mac_size, "%02x:%02x:%02x:%02x:%02x:%02x",
+                             mac.addr[0], mac.addr[1], mac.addr[2], mac.addr[3], mac.addr[4], mac.addr[5]);
+                }
             }
             setcalExit();
         }
