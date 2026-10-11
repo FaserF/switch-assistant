@@ -8,10 +8,9 @@
   <a href="https://switch.hacks.guide/"><img alt="Nintendo Switch" src="https://img.shields.io/badge/Nintendo%20Switch-homebrew-e60012?style=for-the-badge"></a>
 </p>
 <p align="center">
-  <a href="https://github.com/ErSeraph/switch-assistant/releases/latest"><img src="https://img.shields.io/github/v/release/ErSeraph/switch-assistant?style=flat-square" /></a>
-  <a href="https://github.com/ErSeraph/switch-assistant/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ErSeraph/switch-assistant?style=flat-square" /></a>
-  <a href="https://github.com/ErSeraph/switch-assistant/releases"><img src="https://img.shields.io/github/downloads/erseraph/switch-assistant/total?style=flat-square&color=1f883d"></a>
-  <a href="https://ko-fi.com/erseraph"><img src="https://img.shields.io/badge/Ko--fi-support-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" /></a>
+  <a href="https://github.com/FaserF/switch-assistant/releases/latest"><img src="https://img.shields.io/github/v/release/FaserF/switch-assistant?style=flat-square" /></a>
+  <a href="https://github.com/FaserF/switch-assistant/blob/main/LICENSE"><img src="https://img.shields.io/github/license/FaserF/switch-assistant?style=flat-square" /></a>
+  <a href="https://github.com/FaserF/switch-assistant/releases"><img src="https://img.shields.io/github/downloads/FaserF/switch-assistant/total?style=flat-square&color=1f883d"></a>
 </p>
 
 <p align="center">
@@ -235,7 +234,7 @@ It provides a clean visual representation of your Nintendo Switch state, includi
 
 ## Quick Installation
 
-1. Download `switch-ha.nro` from the latest [release](https://github.com/ErSeraph/switch-assistant/releases).
+1. Download `switch-ha.nro` from the latest [release](https://github.com/FaserF/switch-assistant/releases).
 2. Copy the file to your SD card:
 
    ```text
@@ -493,7 +492,8 @@ The script:
 
 ## Credits
 
-The overlay loader is derived from the ISC-licensed `nx-ovlloader` project and chainloads the Switch Assistant overlay directly instead of Tesla Menu.
+- This project is a fork of the original [Switch Assistant](https://github.com/ErSeraph/switch-assistant) by [ErSeraph](https://github.com/ErSeraph). A huge thank you to ErSeraph for creating and maintaining the original project!
+- The overlay loader is derived from the ISC-licensed `nx-ovlloader` project and chainloads the Switch Assistant overlay directly instead of Tesla Menu.
 
 ## License
 
