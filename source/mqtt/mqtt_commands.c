@@ -5,6 +5,8 @@
 #include "title_cache.h"
 
 #include <switch.h>
+#include <switch/applets/libapplet.h>
+#include <switch/services/applet.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,13 +55,17 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
             spsmShutdown(false);
         }
     } else if (strcasecmp(cmd, "sleep") == 0 || strcasecmp(cmd, "standby") == 0) {
-        if (state->svc_spsm_ready) {
-            app_state_push_log(state, "Remote sleep accepted");
-            spsmPutToSleep();
+        app_state_push_log(state, "Remote sleep requested");
+        Result rc = appletRequestToSleep();
+        if (R_FAILED(rc)) {
+            if (R_SUCCEEDED(appletInitialize())) {
+                rc = appletRequestToSleep();
+                appletExit();
+            }
         }
     } else if (strcasecmp(cmd, "close_game") == 0 || strcasecmp(cmd, "close") == 0 || strcasecmp(cmd, "exit_game") == 0) {
         app_state_push_log(state, "Remote close game requested");
-        appletRequestHomeMenu();
+        libappletRequestHomeMenu();
         mutexLock(&state->lock);
         state->sensor_publish_requested = true;
         mutexUnlock(&state->lock);
@@ -320,7 +326,14 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         app_state_push_log(state, "Shutdown command accepted");
         spsmShutdown(false);
     } else if (strcasecmp(payload, "sleep") == 0 || strcasecmp(payload, "standby") == 0) {
-        app_state_push_log(state, "Sleep command removed: unsupported in sysmodule");
+        app_state_push_log(state, "Sleep command accepted");
+        Result rc = appletRequestToSleep();
+        if (R_FAILED(rc)) {
+            if (R_SUCCEEDED(appletInitialize())) {
+                rc = appletRequestToSleep();
+                appletExit();
+            }
+        }
     } else if (strcasecmp(payload, "launch_daybreak") == 0 || strcasecmp(payload, "daybreak") == 0) {
         handle_firmware_update_command(state, fd, config, "daybreak");
     } else if (strncasecmp(payload, "launch_game ", 12) == 0) {
