@@ -283,34 +283,31 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
 
     // Try spl service for Atmosphere/Exosphere version if ams_ver is still Unknown
     if (ams_ver && strcmp(ams_ver, "Unknown") == 0) {
-        if (R_SUCCEEDED(splInitialize())) {
-            u64 exosphere_ver = 0;
-            if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
-                u32 major = 0, minor = 0, micro = 0;
-                if ((exosphere_ver >> 24) & 0xFF) {
-                    major = (exosphere_ver >> 24) & 0xFF;
-                    minor = (exosphere_ver >> 16) & 0xFF;
-                    micro = (exosphere_ver >> 8) & 0xFF;
-                } else {
-                    major = (exosphere_ver >> 16) & 0xFF;
-                    minor = (exosphere_ver >> 8) & 0xFF;
-                    micro = exosphere_ver & 0xFF;
-                }
-                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
-            } else if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65001, &exosphere_ver)) && exosphere_ver > 0) {
-                u32 major = 0, minor = 0, micro = 0;
-                if ((exosphere_ver >> 24) & 0xFF) {
-                    major = (exosphere_ver >> 24) & 0xFF;
-                    minor = (exosphere_ver >> 16) & 0xFF;
-                    micro = (exosphere_ver >> 8) & 0xFF;
-                } else {
-                    major = (exosphere_ver >> 16) & 0xFF;
-                    minor = (exosphere_ver >> 8) & 0xFF;
-                    micro = exosphere_ver & 0xFF;
-                }
-                snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+        u64 exosphere_ver = 0;
+        if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
+            u32 major = 0, minor = 0, micro = 0;
+            if ((exosphere_ver >> 24) & 0xFF) {
+                major = (exosphere_ver >> 24) & 0xFF;
+                minor = (exosphere_ver >> 16) & 0xFF;
+                micro = (exosphere_ver >> 8) & 0xFF;
+            } else {
+                major = (exosphere_ver >> 16) & 0xFF;
+                minor = (exosphere_ver >> 8) & 0xFF;
+                micro = exosphere_ver & 0xFF;
             }
-            splExit();
+            snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
+        } else if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65001, &exosphere_ver)) && exosphere_ver > 0) {
+            u32 major = 0, minor = 0, micro = 0;
+            if ((exosphere_ver >> 24) & 0xFF) {
+                major = (exosphere_ver >> 24) & 0xFF;
+                minor = (exosphere_ver >> 16) & 0xFF;
+                micro = (exosphere_ver >> 8) & 0xFF;
+            } else {
+                major = (exosphere_ver >> 16) & 0xFF;
+                minor = (exosphere_ver >> 8) & 0xFF;
+                micro = exosphere_ver & 0xFF;
+            }
+            snprintf(ams_ver, ams_size, "%u.%u.%u", major, minor, micro);
         }
     }
 }
