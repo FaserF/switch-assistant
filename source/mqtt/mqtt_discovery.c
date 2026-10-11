@@ -726,11 +726,19 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
         publish_discovery_button(state, fd, config, "reboot", "Reboot", "reboot");
         publish_discovery_button(state, fd, config, "shutdown", "Shutdown", "shutdown");
         publish_discovery_button(state, fd, config, "sleep", "Sleep", "sleep");
+    } else {
+        // Fallback: sysmodule can also use svcSleepSystem directly
+        publish_discovery_button(state, fd, config, "sleep", "Sleep", "sleep");
     }
     publish_discovery_button(state, fd, config, "close_game", "Close Game", "close_game");
     publish_discovery_button(state, fd, config, "launch_daybreak", "Launch Daybreak", "launch_daybreak");
     publish_discovery_button(state, fd, config, "get_logs", "Fetch Diagnostics & Logs", "get_logs");
     publish_discovery_sensor_with_attr(state, fd, config, "diagnostics", "Diagnostics & Logs", "mdi:clipboard-pulse-outline", "diagnostic");
+
+    // Publish critical system update entities before heavy installed games scan
+    publish_discovery_update(state, fd, config);
+    publish_discovery_atmosphere_update(state, fd, config);
+
     title_cache_refresh_installed_games();
     publish_discovery_remote(state, fd, config);
     publish_discovery_media_player(state, fd, config);
@@ -741,8 +749,6 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     publish_discovery_sensor_games_count(state, fd, config, "games_2p", "2-Player Games", "mdi:account-multiple");
     publish_discovery_sensor_games_count(state, fd, config, "games_4p", "4-Player Games", "mdi:account-group");
     publish_discovery_sensor_games_count(state, fd, config, "games_8p", "8+ Player Games", "mdi:account-group-outline");
-    publish_discovery_update(state, fd, config);
-    publish_discovery_atmosphere_update(state, fd, config);
     publish_discovery_event(state, fd, config);
     publish_discovery_sensor(state, fd, config, "binary_sensor", "docked", "Docked", "plug", NULL, NULL);
     if (state->svc_ts_ready) {
