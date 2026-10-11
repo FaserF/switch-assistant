@@ -32,8 +32,6 @@ static void mqtt_loop(void *arg) {
     while (true) {
         mutexLock(&state->lock);
         bool should_exit = state->exit_requested;
-        bool power_sleeping = state->power_sleeping;
-        bool dns_ok = state->mqtt_dns_ok;
         AppConfig config = state->config;
         char prefix[SHA_MAX_TOPIC];
         strncpy(prefix, state->config.mqtt_topic_prefix, sizeof(prefix) - 1);
