@@ -509,6 +509,8 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     char sel_game_8p_cmd_topic[192];
     char update_cmd_topic[192];
     char ams_update_cmd_topic[192];
+    char br_cmd_topic[192];
+    char bl_cmd_topic[192];
 
     snprintf(command_topic, sizeof(command_topic), "%s/command", config->mqtt_topic_prefix);
     mqtt_notification_topic(config, "popup", popup_topic, sizeof(popup_topic));
@@ -524,6 +526,8 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     mqtt_select_game_8p_cmd_topic(config, sel_game_8p_cmd_topic, sizeof(sel_game_8p_cmd_topic));
     mqtt_update_command_topic(config, update_cmd_topic, sizeof(update_cmd_topic));
     mqtt_atmosphere_update_command_topic(config, ams_update_cmd_topic, sizeof(ams_update_cmd_topic));
+    mqtt_brightness_cmd_topic(config, br_cmd_topic, sizeof(br_cmd_topic));
+    mqtt_backlight_cmd_topic(config, bl_cmd_topic, sizeof(bl_cmd_topic));
 
     if (strcmp(topic, command_topic) == 0) {
         handle_command_payload(state, fd, config, payload);
@@ -548,5 +552,26 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
         handle_firmware_update_command(state, fd, config, payload);
     } else if (strcmp(topic, ams_update_cmd_topic) == 0) {
         handle_atmosphere_update_command(state, fd, config, payload);
+    } else if (strcmp(topic, br_cmd_topic) == 0) {
+        if (state->svc_lbl_ready) {
+            float val = (float) atof(payload);
+            if (val < 0.0f) val = 0.0f;
+            if (val > 100.0f) val = 100.0f;
+            lblSetCurrentBrightnessSetting(val / 100.0f);
+            mutexLock(&state->lock);
+            state->sensor_publish_requested = true;
+            mutexUnlock(&state->lock);
+        }
+    } else if (strcmp(topic, bl_cmd_topic) == 0) {
+        if (state->svc_lbl_ready) {
+            if (strcasecmp(payload, "ON") == 0 || strcasecmp(payload, "true") == 0 || strcasecmp(payload, "1") == 0) {
+                lblSwitchBacklightOn(0);
+            } else {
+                lblSwitchBacklightOff(0);
+            }
+            mutexLock(&state->lock);
+            state->sensor_publish_requested = true;
+            mutexUnlock(&state->lock);
+        }
     }
 }

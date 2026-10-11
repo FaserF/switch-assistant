@@ -211,6 +211,64 @@ static void publish_discovery_notify(AppState *state, int fd, const AppConfig *c
     mqtt_send_publish(fd, topic, payload, true);
 }
 
+static void publish_discovery_number(AppState *state, int fd, const AppConfig *config, const char *number_id,
+                                     const char *name, const char *cmd_topic, const char *stat_topic,
+                                     float min, float max, float step, const char *unit, const char *icon) {
+    char topic[256];
+    char payload[MQTT_BUFFER];
+    char safe_id[80];
+    char dev_json[512];
+
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    build_device_json_snippet(state, config, safe_id, dev_json, sizeof(dev_json));
+    mqtt_discovery_topic(config, "number", number_id, topic, sizeof(topic));
+
+    snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s\",\"uniq_id\":\"%s_num_%s\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
+             "\"min\":%.1f,\"max\":%.1f,\"step\":%.1f%s%s%s%s%s,%s}",
+             name,
+             safe_id,
+             number_id,
+             cmd_topic,
+             stat_topic,
+             min, max, step,
+             unit ? ",\"unit_of_meas\":\"" : "",
+             unit ? unit : "",
+             unit ? "\"" : "",
+             icon ? ",\"ic\":\"" : "",
+             icon ? icon : (icon ? "\"" : ""),
+             dev_json);
+
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
+static void publish_discovery_switch(AppState *state, int fd, const AppConfig *config, const char *switch_id,
+                                     const char *name, const char *cmd_topic, const char *stat_topic,
+                                     const char *icon) {
+    char topic[256];
+    char payload[MQTT_BUFFER];
+    char safe_id[80];
+    char dev_json[512];
+
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    build_device_json_snippet(state, config, safe_id, dev_json, sizeof(dev_json));
+    mqtt_discovery_topic(config, "switch", switch_id, topic, sizeof(topic));
+
+    snprintf(payload, sizeof(payload),
+             "{\"name\":\"%s\",\"uniq_id\":\"%s_sw_%s\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
+             "\"pl_on\":\"ON\",\"pl_off\":\"OFF\"%s%s%s,%s}",
+             name,
+             safe_id,
+             switch_id,
+             cmd_topic,
+             stat_topic,
+             icon ? ",\"ic\":\"" : "",
+             icon ? icon : (icon ? "\"" : ""),
+             dev_json);
+
+    mqtt_send_publish(fd, topic, payload, true);
+}
+
 #include "title_cache.h"
 #include <stdlib.h>
 
@@ -525,8 +583,20 @@ void mqtt_publish_sensor_discovery(AppState *state, int fd, const AppConfig *con
     publish_discovery_sensor_disabled(state, fd, config, "sensor", "battery_health", "Battery Health", NULL, "%", "measurement", "diagnostic", "mdi:battery-heart-variant");
 
     if (state->svc_lbl_ready) {
-        publish_discovery_sensor_disabled(state, fd, config, "sensor", "brightness", "Screen Brightness", NULL, "%", "measurement", "diagnostic", "mdi:brightness-6");
-        publish_discovery_sensor_disabled(state, fd, config, "binary_sensor", "backlight", "Screen", NULL, NULL, NULL, "diagnostic", "mdi:television-ambient-light");
+        char br_cmd_topic[192];
+        char br_stat_topic[192];
+        char bl_cmd_topic[192];
+        char bl_stat_topic[192];
+        mqtt_brightness_cmd_topic(config, br_cmd_topic, sizeof(br_cmd_topic));
+        mqtt_brightness_state_topic(config, br_stat_topic, sizeof(br_stat_topic));
+        mqtt_backlight_cmd_topic(config, bl_cmd_topic, sizeof(bl_cmd_topic));
+        mqtt_backlight_state_topic(config, bl_stat_topic, sizeof(bl_stat_topic));
+
+        publish_discovery_number(state, fd, config, "brightness", "Screen Brightness", br_cmd_topic, br_stat_topic, 0.0f, 100.0f, 5.0f, "%", "mdi:brightness-6");
+        publish_discovery_switch(state, fd, config, "backlight", "Screen", bl_cmd_topic, bl_stat_topic, "mdi:television-ambient-light");
+
+        publish_discovery_sensor_disabled(state, fd, config, "sensor", "brightness", "Screen Brightness Sensor", NULL, "%", "measurement", "diagnostic", "mdi:brightness-6");
+        publish_discovery_sensor_disabled(state, fd, config, "binary_sensor", "backlight", "Screen Backlight Sensor", NULL, NULL, NULL, "diagnostic", "mdi:television-ambient-light");
     }
     if (state->svc_audctl_ready) {
         publish_discovery_sensor_disabled(state, fd, config, "sensor", "volume", "Volume", NULL, "%", "measurement", "diagnostic", "mdi:volume-high");

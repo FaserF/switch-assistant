@@ -123,6 +123,8 @@ static void mqtt_loop(void *arg) {
         char sel_game_8p_cmd_topic[192];
         char update_cmd_topic[192];
         char ams_update_cmd_topic[192];
+        char br_cmd_topic[192];
+        char bl_cmd_topic[192];
         snprintf(command_topic, sizeof(command_topic), "%s/command", prefix);
         mqtt_remote_send_command_topic(&config, send_cmd_topic, sizeof(send_cmd_topic));
         mqtt_remote_set_topic(&config, cmd_set_topic, sizeof(cmd_set_topic));
@@ -136,6 +138,8 @@ static void mqtt_loop(void *arg) {
         mqtt_select_game_8p_cmd_topic(&config, sel_game_8p_cmd_topic, sizeof(sel_game_8p_cmd_topic));
         mqtt_update_command_topic(&config, update_cmd_topic, sizeof(update_cmd_topic));
         mqtt_atmosphere_update_command_topic(&config, ams_update_cmd_topic, sizeof(ams_update_cmd_topic));
+        mqtt_brightness_cmd_topic(&config, br_cmd_topic, sizeof(br_cmd_topic));
+        mqtt_backlight_cmd_topic(&config, bl_cmd_topic, sizeof(bl_cmd_topic));
         mqtt_send_subscribe(fd, command_topic);
         mqtt_send_subscribe(fd, send_cmd_topic);
         mqtt_send_subscribe(fd, cmd_set_topic);
@@ -149,6 +153,8 @@ static void mqtt_loop(void *arg) {
         mqtt_send_subscribe(fd, sel_game_8p_cmd_topic);
         mqtt_send_subscribe(fd, update_cmd_topic);
         mqtt_send_subscribe(fd, ams_update_cmd_topic);
+        mqtt_send_subscribe(fd, br_cmd_topic);
+        mqtt_send_subscribe(fd, bl_cmd_topic);
         if (config.notification_overlay_enabled) {
             char popup_topic[192];
             mqtt_notification_topic(&config, "popup", popup_topic, sizeof(popup_topic));

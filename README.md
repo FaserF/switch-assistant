@@ -86,8 +86,10 @@ Once configured, it publishes console sensors to Home Assistant and shows Home A
 | `sensor` | `SD Card Free Space` | Available storage space on SD card | *Disabled by default* | `MB` |
 | `sensor` | `Internal Storage Free Space` | Available storage space on NAND (User Partition) | *Disabled by default* | `MB` |
 | `sensor` | `RAM Used` | Current system memory usage | *Disabled by default* | `MB` |
-| `sensor` | `Screen Brightness` | Current display brightness level | *Disabled by default* | `%` (0–100) |
-| `binary_sensor` | `Screen` | Screen backlight status | *Disabled by default* | `ON` / `OFF` |
+| `number` | `Screen Brightness` | Controls display brightness level | **Enabled** | `0` – `100` (`%`, step `5`) |
+| `switch` | `Screen` | Controls display backlight state (on/off) | **Enabled** | `ON` / `OFF` |
+| `sensor` | `Screen Brightness Sensor` | Diagnostic display brightness reading | *Disabled by default* | `%` (0–100) |
+| `binary_sensor` | `Screen Backlight Sensor` | Diagnostic screen backlight status | *Disabled by default* | `ON` / `OFF` |
 | `sensor` | `Volume` | System audio volume | *Disabled by default* | `%` (0–100) |
 | `sensor` | `Audio Output Target` | Active audio endpoint | *Disabled by default* | `speaker`, `headphone`, `tv`, `usb`, `bluetooth` |
 | `sensor` | `Player 1–8 Controller` | Controller model per player slot | *Disabled by default* | `handheld`, `joydual`, `joyleft`, `joyright`, `pro`, `gamecube`, `snes`, `n64`, `genesis` |

@@ -212,3 +212,28 @@ void mqtt_availability_topic(const AppConfig *config, char *topic, size_t topic_
     snprintf(topic, topic_size, "switch_ha/%s/availability", safe_id);
 }
 
+void mqtt_brightness_cmd_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/brightness/set", safe_id);
+}
+
+void mqtt_brightness_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/brightness/state", safe_id);
+}
+
+void mqtt_backlight_cmd_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/backlight/set", safe_id);
+}
+
+void mqtt_backlight_state_topic(const AppConfig *config, char *topic, size_t topic_size) {
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(topic, topic_size, "switch_ha/%s/backlight/state", safe_id);
+}
+
+

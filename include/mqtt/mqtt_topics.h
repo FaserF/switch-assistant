@@ -44,3 +44,8 @@ void mqtt_atmosphere_update_command_topic(const AppConfig *config, char *topic, 
 void mqtt_overlay_event_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_call_service_topic(const AppConfig *config, char *topic, size_t topic_size);
 void mqtt_availability_topic(const AppConfig *config, char *topic, size_t topic_size);
+
+void mqtt_brightness_cmd_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_brightness_state_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_backlight_cmd_topic(const AppConfig *config, char *topic, size_t topic_size);
+void mqtt_backlight_state_topic(const AppConfig *config, char *topic, size_t topic_size);
