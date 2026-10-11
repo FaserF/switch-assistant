@@ -92,7 +92,8 @@
 				"svcGetProcessList":	"0x65",
 				"svcCreatePort":	"0x70",
 				"svcManageNamedPort":	"0x71",
-				"svcConnectToPort":	"0x72"
+				"svcConnectToPort":	"0x72",
+				"svcTerminateProcess":	"0x78"
 			}
 		}, {
 			"type":	"min_kernel_version",

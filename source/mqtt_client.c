@@ -185,6 +185,9 @@ static void mqtt_loop(void *arg) {
         last_sensor_poll_ms = mqtt_monotonic_ms();
         last_heartbeat_ms = last_sensor_poll_ms;
 
+        unsigned char rx_buffer[MQTT_BUFFER * 2];
+        int rx_len = 0;
+
         while (true) {
             struct pollfd pfd = {.fd = fd, .events = POLLIN};
             int poll_rc = poll(&pfd, 1, 100);
@@ -192,11 +195,14 @@ static void mqtt_loop(void *arg) {
                 break;
             }
             if (poll_rc > 0 && (pfd.revents & POLLIN)) {
-                unsigned char buffer[MQTT_BUFFER];
-                int size = recv(fd, buffer, sizeof(buffer), 0);
+                int space = (int) sizeof(rx_buffer) - rx_len;
+                if (space <= 0) {
+                    // Buffer overflow - desync, drop connection to reconnect cleanly
+                    break;
+                }
+                int size = recv(fd, rx_buffer + rx_len, (size_t) space, 0);
                 if (size < 0) {
                     if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-                        // Spurious wakeup, continue loop
                         size = 0;
                     } else {
                         break;
@@ -205,22 +211,38 @@ static void mqtt_loop(void *arg) {
                     // Remote closed connection
                     break;
                 }
+                rx_len += size;
+
                 int offset = 0;
-                while (offset < size) {
-                    unsigned char ptype = buffer[offset] & 0xF0;
+                while (offset < rx_len) {
+                    unsigned char ptype = rx_buffer[offset] & 0xF0;
                     int remaining = 0;
                     int remaining_bytes = 0;
-                    if (!mqtt_read_remaining_length(buffer + offset, size - offset, &remaining, &remaining_bytes)) {
-                        break;
+                    if (!mqtt_read_remaining_length(rx_buffer + offset, rx_len - offset, &remaining, &remaining_bytes)) {
+                        break; // Incomplete remaining length, wait for more data
                     }
                     int packet_len = 1 + remaining_bytes + remaining;
-                    if (packet_len <= 0 || offset + packet_len > size) {
+                    if (packet_len <= 0) {
+                        offset = rx_len; // Malformed packet
                         break;
                     }
+                    if (offset + packet_len > rx_len) {
+                        break; // Partial packet received, wait for remaining bytes
+                    }
                     if (ptype == 0x30) {
-                        mqtt_handle_publish(state, fd, &config, buffer + offset, packet_len);
+                        mqtt_handle_publish(state, fd, &config, rx_buffer + offset, packet_len);
                     }
                     offset += packet_len;
+                }
+
+                // Shift any leftover partial packet to the start of rx_buffer
+                if (offset > 0) {
+                    if (offset < rx_len) {
+                        memmove(rx_buffer, rx_buffer + offset, (size_t) (rx_len - offset));
+                        rx_len -= offset;
+                    } else {
+                        rx_len = 0;
+                    }
                 }
             }
 

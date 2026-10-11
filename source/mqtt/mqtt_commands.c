@@ -38,9 +38,18 @@ static void handle_launch_game_payload(AppState *state, int fd, const AppConfig 
     }
 }
 
+static void mqtt_publish_cmd_status(int fd, const AppConfig *config, const char *cmd, const char *status) {
+    if (fd < 0 || !config || !cmd || !status) return;
+    char stat_topic[192];
+    char safe_id[80];
+    mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+    snprintf(stat_topic, sizeof(stat_topic), "switch_ha/%s/command/status", safe_id);
+    char payload[128];
+    snprintf(payload, sizeof(payload), "{\"command\":\"%s\",\"status\":\"%s\"}", cmd, status);
+    mqtt_send_publish(fd, stat_topic, payload, false);
+}
+
 static void handle_remote_command(AppState *state, int fd, const AppConfig *config, const char *cmd) {
-    (void) fd;
-    (void) config;
     if (!cmd || cmd[0] == '\0') {
         return;
     }
@@ -55,9 +64,11 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
         }
         if (state->svc_spsm_ready) {
             app_state_push_log(state, "Remote reboot accepted");
+            mqtt_publish_cmd_status(fd, config, "reboot", "success");
             spsmShutdown(true);
         } else {
             app_state_push_log(state, "Remote reboot failed: spsm not ready");
+            mqtt_publish_cmd_status(fd, config, "reboot", "failed_spsm");
         }
     } else if (strcasecmp(cmd, "shutdown") == 0 || strcasecmp(cmd, "poweroff") == 0 || strcasecmp(cmd, "turn_off") == 0 || strcasecmp(cmd, "off") == 0) {
         if (!state->svc_spsm_ready) {
@@ -68,9 +79,11 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
         }
         if (state->svc_spsm_ready) {
             app_state_push_log(state, "Remote shutdown accepted");
+            mqtt_publish_cmd_status(fd, config, "shutdown", "success");
             spsmShutdown(false);
         } else {
             app_state_push_log(state, "Remote shutdown failed: spsm not ready");
+            mqtt_publish_cmd_status(fd, config, "shutdown", "failed_spsm");
         }
     } else if (strcasecmp(cmd, "sleep") == 0 || strcasecmp(cmd, "standby") == 0) {
         app_state_push_log(state, "Remote sleep requested");
@@ -83,6 +96,7 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
         }
         LOG_I("mqtt", "Remote sleep rc=0x%x (mode=%d)", rc, state->app_mode);
         app_state_push_log(state, "Remote sleep rc=0x%x", rc);
+        mqtt_publish_cmd_status(fd, config, "sleep", R_SUCCEEDED(rc) ? "success" : "failed");
     } else if (strcasecmp(cmd, "close_game") == 0 || strcasecmp(cmd, "close") == 0 || strcasecmp(cmd, "exit_game") == 0) {
         app_state_push_log(state, "Remote close game requested");
         bool terminated = false;
@@ -98,11 +112,9 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
                         if (title_cache_lookup(prog_id, name, sizeof(name))) {
                             LOG_I("mqtt", "Terminating running game pid=%llu prog=0x%016llx (%s)",
                                   (unsigned long long)process_ids[i], (unsigned long long)prog_id, name);
-                            Handle proc_handle = 0;
-                            // Attempt to terminate application process
                             Result rc_term = svcTerminateProcess(process_ids[i]);
                             LOG_I("mqtt", "svcTerminateProcess rc=0x%x", rc_term);
-                            (void)proc_handle;
+                            app_state_push_log(state, "Close game '%s' rc=0x%x", name, rc_term);
                             terminated = true;
                             break;
                         }
@@ -111,7 +123,13 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
             }
         }
         if (!terminated) {
-            libappletRequestHomeMenu();
+            if (state->app_mode != AppMode_Sysmodule) {
+                libappletRequestHomeMenu();
+            }
+            app_state_push_log(state, "Close game: no running game found");
+            mqtt_publish_cmd_status(fd, config, "close_game", "no_game_running");
+        } else {
+            mqtt_publish_cmd_status(fd, config, "close_game", "success");
         }
         mutexLock(&state->lock);
         state->sensor_publish_requested = true;
@@ -436,10 +454,12 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         if (!state->svc_spsm_ready) {
             LOG_W("mqtt", "Reboot unavailable: spsm not ready");
             app_state_push_log(state, "Reboot failed: spsm not ready");
+            mqtt_publish_cmd_status(fd, config, "reboot", "failed_spsm");
             return;
         }
         LOG_I("mqtt", "Reboot command accepted");
         app_state_push_log(state, "Reboot command accepted");
+        mqtt_publish_cmd_status(fd, config, "reboot", "success");
         spsmShutdown(true);
     } else if (strcasecmp(payload, "shutdown") == 0 || strcasecmp(payload, "poweroff") == 0) {
         if (!state->svc_spsm_ready) {
@@ -451,10 +471,12 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         if (!state->svc_spsm_ready) {
             LOG_W("mqtt", "Shutdown unavailable: spsm not ready");
             app_state_push_log(state, "Shutdown failed: spsm not ready");
+            mqtt_publish_cmd_status(fd, config, "shutdown", "failed_spsm");
             return;
         }
         LOG_I("mqtt", "Shutdown command accepted");
         app_state_push_log(state, "Shutdown command accepted");
+        mqtt_publish_cmd_status(fd, config, "shutdown", "success");
         spsmShutdown(false);
     } else if (strcasecmp(payload, "sleep") == 0 || strcasecmp(payload, "standby") == 0) {
         LOG_I("mqtt", "Sleep command accepted");
@@ -468,6 +490,9 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         }
         LOG_I("mqtt", "Sleep rc=0x%x (mode=%d)", rc, state->app_mode);
         app_state_push_log(state, "Sleep rc=0x%x", rc);
+        mqtt_publish_cmd_status(fd, config, "sleep", R_SUCCEEDED(rc) ? "success" : "failed");
+    } else if (strcasecmp(payload, "close_game") == 0 || strcasecmp(payload, "close") == 0 || strcasecmp(payload, "exit_game") == 0) {
+        handle_remote_command(state, fd, config, "close_game");
     } else if (strcasecmp(payload, "launch_daybreak") == 0 || strcasecmp(payload, "daybreak") == 0) {
         handle_firmware_update_command(state, fd, config, "daybreak");
     } else if (strncasecmp(payload, "launch_game ", 12) == 0) {
@@ -695,7 +720,19 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     LOG_I("mqtt", "RX publish topic='%s' payload='%s'", topic, payload);
     app_state_push_log(state, "MQTT RX: %s -> %s", topic, payload);
 
-    if (strcmp(topic, command_topic) == 0 || strcmp(topic, dev_cmd_topic) == 0) {
+    bool is_command = (strcmp(topic, command_topic) == 0 || strcmp(topic, dev_cmd_topic) == 0);
+    if (!is_command) {
+        char safe_id[80];
+        mqtt_sanitize_id(mqtt_client_id_or_device(config), safe_id, sizeof(safe_id));
+        size_t tlen = strlen(topic);
+        if (tlen >= 8 && strcmp(topic + tlen - 8, "/command") == 0) {
+            if (strstr(topic, safe_id) != NULL) {
+                is_command = true;
+            }
+        }
+    }
+
+    if (is_command) {
         handle_command_payload(state, fd, config, payload);
     } else if (strcmp(topic, logs_cmd_topic) == 0) {
         handle_get_logs_command(state, fd, config, payload);
