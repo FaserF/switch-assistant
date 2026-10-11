@@ -137,7 +137,10 @@ def main():
                 break
         if not changelog_from:
             for t in own_tags:
-                if re.match(r"^v?\d+\.\d+\.\d+$", t):
+                # Skip a stable tag with the same base version as this beta
+                # (e.g. v2.0.0 exists as an accidental release, but we're releasing 2.0.0b0)
+                t_bare = re.sub(r"^v", "", t)
+                if re.match(r"^\d+\.\d+\.\d+$", t_bare) and t_bare != base_version:
                     changelog_from = t
                     changelog_label = f"since last stable release (`{t}`) — first beta of {base_version}"
                     break
@@ -146,9 +149,9 @@ def main():
             changelog_from = latest_tag
             changelog_label = f"since `{latest_tag}`"
 
-    # Detect first-ever own release: if no own tags found yet, this is the initial release
-    # and we reference the upstream fork baseline (v1.8 of ErSeraph/switch-assistant)
-    if not own_tags or (not changelog_from and not own_tags):
+    # Detect first-ever own release (no own tags, or beta whose only "stable" was the same
+    # base version = accidental release): fall back to upstream fork baseline.
+    if not changelog_from:
         is_first_release = True
         changelog_from = UPSTREAM_BASELINE_TAG
         changelog_label = (
@@ -192,7 +195,7 @@ def main():
             if changelog_from:
                 cl_args.extend(["--from-tag", changelog_from])
             # Pass upstream baseline info for first-release note
-            if is_first_release and "--upstream-ref" in open(script_path).read():
+            if is_first_release and "--upstream-ref" in open(script_path, encoding="utf-8").read():
                 cl_args.extend(["--upstream-ref", UPSTREAM_BASELINE_TAG])
                 cl_args.extend(["--upstream-url", UPSTREAM_RELEASE_URL])
             subprocess.run(cl_args, check=True)
