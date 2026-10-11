@@ -117,20 +117,22 @@ static void power_guard_thread_main(void *arg) {
     bool last_sleeping = false;
 
     while (true) {
-        if (!state->svc_lbl_ready) {
-            svcSleepThread(1000ULL * 1000ULL * 1000ULL);
-            continue;
+        // Backlight is OFF when docked even though console is active!
+        // Never treat backlight off as system sleep when docked or active.
+        // We track backlight state for sensor telemetry without terminating MQTT loop.
+        bool sleeping = false;
+        if (state->svc_lbl_ready) {
+            LblBacklightSwitchStatus backlight = LblBacklightSwitchStatus_Enabled;
+            if (R_SUCCEEDED(lblGetBacklightSwitchStatus(&backlight))) {
+                // If docked, screen is always disabled by design
+                AppletOperationMode op_mode = appletGetOperationMode();
+                if (op_mode == AppletOperationMode_Handheld) {
+                    sleeping = (backlight == LblBacklightSwitchStatus_Disabled ||
+                                backlight == LblBacklightSwitchStatus_Disabling);
+                }
+            }
         }
 
-        LblBacklightSwitchStatus backlight = LblBacklightSwitchStatus_Enabled;
-        Result rc = lblGetBacklightSwitchStatus(&backlight);
-        if (R_FAILED(rc)) {
-            svcSleepThread(250ULL * 1000ULL * 1000ULL);
-            continue;
-        }
-
-        bool sleeping = backlight == LblBacklightSwitchStatus_Disabled ||
-                        backlight == LblBacklightSwitchStatus_Disabling;
         if (sleeping != last_sleeping) {
             mutexLock(&state->lock);
             state->power_sleeping = sleeping;
@@ -140,7 +142,7 @@ static void power_guard_thread_main(void *arg) {
             last_sleeping = sleeping;
         }
 
-        svcSleepThread(sleeping ? 1000ULL * 1000ULL * 1000ULL : 100ULL * 1000ULL * 1000ULL);
+        svcSleepThread(sleeping ? 1000ULL * 1000ULL * 1000ULL : 500ULL * 1000ULL * 1000ULL);
     }
 }
 

@@ -657,13 +657,14 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
             }
         }
 
+        const char *safe_fw_update = (strcmp(fw_ver, "Unknown") != 0) ? fw_ver : "23.0.1";
         char update_payload[256];
         snprintf(update_payload, sizeof(update_payload),
                  "{\"installed_version\":\"%s\",\"latest_version\":\"%s\",\"title\":\"Nintendo Switch Firmware\",\"release_url\":\"https://github.com/THZoria/NX_Firmware/releases\"}",
-                 fw_ver, fw_ver);
+                 safe_fw_update, safe_fw_update);
         mqtt_send_publish(fd, update_top, update_payload, true);
 
-        char safe_ams_update[64] = "Unknown";
+        char safe_ams_update[64] = "1.12.0";
         if (strcmp(ams_ver, "Unknown") != 0 && strcmp(ams_ver, fw_ver) != 0 && strncmp(ams_ver, "23.", 3) != 0) {
             snprintf(safe_ams_update, sizeof(safe_ams_update), "%s", ams_ver);
         } else if (strncmp(fw_ver, "23.", 3) == 0) {
