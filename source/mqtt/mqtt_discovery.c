@@ -1,6 +1,7 @@
 #include "mqtt/mqtt_discovery.h"
 #include "mqtt/mqtt_proto.h"
 #include "mqtt/mqtt_topics.h"
+#include "mqtt/mqtt_state.h"
 
 #include <switch.h>
 #include <stdio.h>
@@ -9,12 +10,13 @@
 static void get_system_device_info(AppState *state, char *mac_str, size_t mac_size, char *fw_str, size_t fw_size) {
     if (mac_str && mac_size > 0) {
         mac_str[0] = '\0';
-        if (state && state->svc_setsys_ready) {
+        if (R_SUCCEEDED(setcalInitialize())) {
             u8 mac[6] = {0};
-            if (R_SUCCEEDED(setsysGetWlanMacAddress(mac))) {
+            if (R_SUCCEEDED(setcalGetWirelessLanMacAddress(mac))) {
                 snprintf(mac_str, mac_size, "%02X:%02X:%02X:%02X:%02X:%02X",
                          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
             }
+            setcalExit();
         }
     }
 
@@ -225,7 +227,7 @@ static void publish_discovery_number(AppState *state, int fd, const AppConfig *c
 
     snprintf(payload, sizeof(payload),
              "{\"name\":\"%s\",\"uniq_id\":\"%s_num_%s\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\","
-             "\"min\":%.1f,\"max\":%.1f,\"step\":%.1f%s%s%s%s%s,%s}",
+             "\"min\":%.1f,\"max\":%.1f,\"step\":%.1f%s%s%s%s%s%s,%s}",
              name,
              safe_id,
              number_id,
@@ -236,7 +238,8 @@ static void publish_discovery_number(AppState *state, int fd, const AppConfig *c
              unit ? unit : "",
              unit ? "\"" : "",
              icon ? ",\"ic\":\"" : "",
-             icon ? icon : (icon ? "\"" : ""),
+             icon ? icon : "",
+             icon ? "\"" : "",
              dev_json);
 
     mqtt_send_publish(fd, topic, payload, true);
@@ -263,7 +266,8 @@ static void publish_discovery_switch(AppState *state, int fd, const AppConfig *c
              cmd_topic,
              stat_topic,
              icon ? ",\"ic\":\"" : "",
-             icon ? icon : (icon ? "\"" : ""),
+             icon ? icon : "",
+             icon ? "\"" : "",
              dev_json);
 
     mqtt_send_publish(fd, topic, payload, true);
