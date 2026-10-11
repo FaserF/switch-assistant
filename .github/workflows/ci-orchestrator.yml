@@ -216,6 +216,21 @@ jobs:
         with:
           args: /bin/bash -c "export PATH=$PATH:/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin && (cd sysmodule && make install-layout) && (cd overlay && make) && (cd overlay-loader && make install-layout) && mkdir -p romfs/sysmodule romfs/overlay-loader romfs/overlay && cp sysmodule/atmosphere/contents/00FF000053484101/exefs.nsp romfs/sysmodule/exefs.nsp && touch romfs/sysmodule/boot2.flag && cp overlay-loader/atmosphere/contents/00FF000053484102/exefs.nsp romfs/overlay-loader/exefs.nsp && touch romfs/overlay-loader/boot2.flag && cp overlay/switch-ha-overlay.ovl romfs/overlay/switch-ha-overlay.ovl && rm -rf build switch-ha.elf switch-ha.nro && make"
 
+      - name: Package Switch Binaries
+        run: |
+          mkdir -p dist/switch dist/atmosphere/contents/00FF000053484101/flags dist/atmosphere/contents/00FF000053484102/flags
+          cp switch-ha.nro dist/switch/switch-ha.nro || true
+          cp overlay/switch-ha-overlay.ovl dist/switch/switch-ha-overlay.ovl || true
+          cp sysmodule/atmosphere/contents/00FF000053484101/exefs.nsp dist/atmosphere/contents/00FF000053484101/exefs.nsp || true
+          touch dist/atmosphere/contents/00FF000053484101/flags/boot2.flag
+          cp overlay-loader/atmosphere/contents/00FF000053484102/exefs.nsp dist/atmosphere/contents/00FF000053484102/exefs.nsp || true
+
+      - name: Upload Switch Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: switch-binaries
+          path: dist/
+
   auto-merge:
     name: Auto Merge Renovate
     runs-on: ubuntu-latest
