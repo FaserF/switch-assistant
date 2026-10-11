@@ -150,6 +150,7 @@ static bool socket_connect_ipv4(AppState *state, const char *host, int port, int
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
         struct timeval tv = {.tv_sec = 10, .tv_usec = 0};
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         *out_fd = fd;
         mqtt_set_status(state, true, true, false, "TCP OK: %s:%d", host, port);
         return true;
