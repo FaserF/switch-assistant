@@ -4,6 +4,7 @@
 #include "mqtt/mqtt_discovery.h"
 #include "mqtt/mqtt_state.h"
 #include "mqtt/mqtt_commands.h"
+#include "svc_session.h"
 
 #include <switch.h>
 
@@ -18,20 +19,26 @@
 typedef struct {
     Thread thread;
     bool active;
-    int socket_fd;
+    volatile int socket_fd;  // also read by the psc thread (mqtt_service_socket_idle)
+    // True while mqtt_socket_connect_to() runs: its socket is not in socket_fd yet.
+    volatile bool connecting;
 } MqttContext;
 
-static MqttContext g_ctx = {0};
+#define OVERLAY_POLL_INTERVAL_MS 1000
+
+static MqttContext g_ctx = {.socket_fd = -1};
 
 static void mqtt_loop(void *arg) {
     AppState *state = arg;
     u64 last_sensor_poll_ms = 0;
     u64 last_heartbeat_ms = 0;
+    u64 last_overlay_poll_ms = 0;
     app_state_push_log(state, "MQTT thread started");
 
     while (true) {
         mutexLock(&state->lock);
         bool should_exit = state->exit_requested;
+        bool power_sleeping = state->power_sleeping;
         AppConfig config = state->config;
         char prefix[SHA_MAX_TOPIC];
         strncpy(prefix, state->config.mqtt_topic_prefix, sizeof(prefix) - 1);
@@ -44,6 +51,14 @@ static void mqtt_loop(void *arg) {
 
         if (should_exit) {
             break;
+        }
+
+        // No connection while the console sleeps or shuts down: psc waits for
+        // the socket to be closed before it lets the transition go on.
+        if (power_sleeping) {
+            mqtt_set_status(state, false, false, false, "sleeping");
+            svcSleepThread(1000 * 1000 * 1000ULL);
+            continue;
         }
 
         if (host[0] == '\0' || prefix[0] == '\0') {
@@ -68,7 +83,26 @@ static void mqtt_loop(void *arg) {
 
         int fd = -1;
         app_state_push_log(state, "MQTT connecting %s:%d", host, port);
-        if (!mqtt_socket_connect_to(state, host, port, &fd)) {
+        g_ctx.connecting = true;
+        bool connected_ok = mqtt_socket_connect_to(state, host, port, &fd);
+        if (connected_ok) {
+            g_ctx.socket_fd = fd;
+        }
+        g_ctx.connecting = false;
+
+        // The console may have started to sleep while connect() was blocking:
+        // drop the socket right away instead of starting the session (discovery
+        // takes long and psc is waiting for the socket to be closed).
+        mutexLock(&state->lock);
+        power_sleeping = state->power_sleeping;
+        mutexUnlock(&state->lock);
+        if (connected_ok && power_sleeping) {
+            close(fd);
+            g_ctx.socket_fd = -1;
+            continue;
+        }
+
+        if (!connected_ok) {
             mutexLock(&state->lock);
             char error[SHA_LOG_LINE];
             strncpy(error, state->mqtt_last_error, sizeof(error) - 1);
@@ -136,11 +170,13 @@ static void mqtt_loop(void *arg) {
         mqtt_brightness_cmd_topic(&config, br_cmd_topic, sizeof(br_cmd_topic));
         mqtt_backlight_cmd_topic(&config, bl_cmd_topic, sizeof(bl_cmd_topic));
         mqtt_logs_command_topic(&config, logs_cmd_topic, sizeof(logs_cmd_topic));
-        char wildcard_topic[192];
-        char safe_id[80];
-        mqtt_sanitize_id(mqtt_client_id_or_device(&config), safe_id, sizeof(safe_id));
-        snprintf(wildcard_topic, sizeof(wildcard_topic), "switch_ha/%s/#", safe_id);
-        mqtt_send_subscribe(fd, wildcard_topic);
+        // Each command topic is subscribed on its own. A switch_ha/<id>/#
+        // wildcard would also deliver every state topic this device publishes
+        // back to it (MQTT 3.1.1 has no "no local"), each one parsed and
+        // written to the SD card log, several times per second.
+        // switch_ha/<id>/command carries the buttons (reboot, shutdown, sleep,
+        // close game, ...); it used to be covered only by a wildcard.
+        mqtt_send_subscribe(fd, dev_cmd_topic);
         if (strcmp(command_topic, dev_cmd_topic) != 0) {
             mqtt_send_subscribe(fd, command_topic);
         }
@@ -173,6 +209,8 @@ static void mqtt_loop(void *arg) {
         mutexUnlock(&state->lock);
         app_state_push_log(state, "MQTT connected");
         app_state_set_status(state, "MQTT connected");
+        // Sessions read by the sensor loop live as long as this connection.
+        svc_mqtt_open_all(state);
 
         char avail_topic[192];
         mqtt_availability_topic(&config, avail_topic, sizeof(avail_topic));
@@ -248,6 +286,7 @@ static void mqtt_loop(void *arg) {
 
             mutexLock(&state->lock);
             should_exit = state->exit_requested;
+            power_sleeping = state->power_sleeping;
             bool sensor_publish_requested = state->sensor_publish_requested;
             if (sensor_publish_requested) {
                 state->sensor_publish_requested = false;
@@ -257,9 +296,30 @@ static void mqtt_loop(void *arg) {
                 break;
             }
 
+            if (power_sleeping) {
+                // Sleep/shutdown: psc is waiting for this socket to close and
+                // the network goes down soon. Only the few "off" states, then
+                // a clean DISCONNECT so the broker does not fire the
+                // "offline" will: Home Assistant shows the console as off.
+                mqtt_publish_sleep_states(fd, &config);
+                mqtt_send_disconnect(fd);
+                break;
+            }
+
             u64 now = mqtt_monotonic_ms();
-            mqtt_process_overlay_commands(state, fd, &config);
+            // The overlay drops a command file on the SD card; checking for it
+            // every loop iteration (~10 times per second) is needless fs work.
+            if (now - last_overlay_poll_ms >= OVERLAY_POLL_INTERVAL_MS) {
+                mqtt_process_overlay_commands(state, fd, &config);
+                last_overlay_poll_ms = now;
+            }
             if (sensor_publish_requested || now - last_sensor_poll_ms >= SENSOR_POLL_INTERVAL_MS) {
+                if (sensor_publish_requested) {
+                    // Commands (brightness, backlight, ...) publish optimistic
+                    // states directly; forget what was published so the real
+                    // values are sent again even if they did not change.
+                    sensor_snapshot.topic_cache_count = 0;
+                }
                 mqtt_publish_switch_sensors(state, fd, &config, &sensor_snapshot, false);
                 last_sensor_poll_ms = now;
             }
@@ -280,6 +340,12 @@ static void mqtt_loop(void *arg) {
         }
         close(fd);
         g_ctx.socket_fd = -1;
+        if (!power_sleeping) {
+            svc_mqtt_close_all();
+        }
+        // On sleep/shutdown the sessions are kept: closing them means IPC to
+        // services that are going through the same power transition. They are
+        // renewed on the next connection (svc_mqtt_open_all closes first).
         mutexLock(&state->lock);
         state->mqtt_tcp_ok = false;
         state->mqtt_connected = false;
@@ -291,6 +357,19 @@ static void mqtt_loop(void *arg) {
         }
         svcSleepThread(1000ULL * 1000ULL * 1000ULL);
     }
+}
+
+void mqtt_service_abort_socket(void) {
+    int fd = g_ctx.socket_fd;
+    if (fd >= 0) {
+        // Unblocks a send()/poll() stuck on a network that is going down; the
+        // MQTT thread then closes the socket itself.
+        shutdown(fd, SHUT_RDWR);
+    }
+}
+
+bool mqtt_service_socket_idle(void) {
+    return g_ctx.socket_fd < 0 && !g_ctx.connecting;
 }
 
 bool mqtt_service_start(AppState *state) {
