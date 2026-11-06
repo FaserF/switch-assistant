@@ -2,6 +2,7 @@
 #include "mqtt/mqtt_proto.h"
 #include "mqtt/mqtt_topics.h"
 #include "screen_stream.h"
+#include "svc_session.h"
 #include "title_cache.h"
 
 #include <switch.h>
@@ -192,7 +193,7 @@ static bool scan_process_list_for_known_game(AppState *state, u64 *pid_out, u64 
 }
 
 static bool current_game(AppState *state, u64 *application_id, char *name, size_t name_size) {
-    if (!state->svc_pminfo_ready) {
+    if (!svc_mqtt_is_open(SvcId_Pminfo)) {
         set_game_status(state, "pminfo unavailable");
         return false;
     }
@@ -228,21 +229,51 @@ static void publish_if_changed(int fd, const AppConfig *config, SensorSnapshot *
     }
 }
 
+static u32 fnv1a(const char *text) {
+    u32 hash = 2166136261u;
+    for (const unsigned char *p = (const unsigned char *) text; *p; ++p) {
+        hash = (hash ^ *p) * 16777619u;
+    }
+    return hash;
+}
+
+// The sensor loop runs every second; publishing every state topic each time
+// floods the broker with retained messages that did not change.
+static void publish_topic_if_changed(int fd, SensorSnapshot *snapshot, bool force, const char *topic, const char *payload) {
+    u32 topic_hash = fnv1a(topic);
+    u32 payload_hash = fnv1a(payload);
+    int slot = -1;
+    for (int i = 0; i < snapshot->topic_cache_count; ++i) {
+        if (snapshot->topic_cache[i].topic_hash == topic_hash) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot >= 0 && !force && snapshot->initialized && snapshot->topic_cache[slot].payload_hash == payload_hash) {
+        return;
+    }
+    if (!mqtt_send_publish(fd, topic, payload, true)) {
+        return;
+    }
+    if (slot < 0 && snapshot->topic_cache_count < SENSOR_TOPIC_CACHE_SIZE) {
+        slot = snapshot->topic_cache_count++;
+        snapshot->topic_cache[slot].topic_hash = topic_hash;
+    }
+    if (slot >= 0) {
+        snapshot->topic_cache[slot].payload_hash = payload_hash;
+    }
+}
+
 void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, char *ams_ver, size_t ams_size) {
     if (fw_ver && fw_size > 0) snprintf(fw_ver, fw_size, "Unknown");
     if (ams_ver && ams_size > 0) snprintf(ams_ver, ams_size, "Unknown");
 
-    bool setsys_needed_close = false;
-    if (!state || !state->svc_setsys_ready) {
-        if (R_SUCCEEDED(setsysInitialize())) {
-            setsys_needed_close = true;
-            if (state) state->svc_setsys_ready = true;
-        }
-    }
+    // setsys and spl are opened only for this read (svc_session.h).
+    bool setsys_open = R_SUCCEEDED(svc_open(SvcId_Setsys));
 
     SetSysFirmwareVersion fw;
     memset(&fw, 0, sizeof(fw));
-    if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
+    if (setsys_open && R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
         if (fw.display_version[0] != '\0') {
             // Extract base firmware version only (before '|' or ' ' or '(' separators)
             const char *pipe = strchr(fw.display_version, '|');
@@ -275,23 +306,14 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
         }
     }
 
-    if (setsys_needed_close && (!state || !state->svc_setsys_ready)) {
-        setsysExit();
+    if (setsys_open) {
+        svc_close(SvcId_Setsys);
     }
 
     // Always query Exosphere/SPL first — this is the ONLY reliable AMS version source
     // on modern firmware (23.x+). AMS does NOT embed its version in display_version.
     if (ams_ver && ams_size > 0) {
-        bool spl_init_local = false;
-        bool spl_ready = (state && state->svc_spl_ready);
-        if (!spl_ready) {
-            if (R_SUCCEEDED(splInitialize())) {
-                spl_init_local = true;
-                spl_ready = true;
-                if (state) state->svc_spl_ready = true;
-            }
-        }
-        if (spl_ready) {
+        if (R_SUCCEEDED(svc_open(SvcId_Spl))) {
             u64 exosphere_ver = 0;
             // Item 65000 = CONFIGITEM_EXOSPHERE_VERSION
             if (R_SUCCEEDED(splGetConfig((SplConfigItem) 65000, &exosphere_ver)) && exosphere_ver > 0) {
@@ -313,10 +335,7 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
                     snprintf(ams_ver, ams_size, "%u.%u.%u", maj1, min1, mic1);
                 }
             }
-            if (spl_init_local && (!state || state->app_mode != AppMode_Sysmodule)) {
-                splExit();
-                if (state) state->svc_spl_ready = false;
-            }
+            svc_close(SvcId_Spl);
         }
 
         // Last-resort: parse AMS string from display_version (older firmware embedded it)
@@ -354,6 +373,18 @@ void mqtt_get_system_versions(AppState *state, char *fw_ver, size_t fw_size, cha
 }
 
 
+void mqtt_publish_sleep_states(int fd, const AppConfig *config) {
+    char topic[192];
+    mqtt_media_player_state_topic(config, topic, sizeof(topic));
+    mqtt_send_publish(fd, topic, "off", true);
+    mqtt_remote_state_topic(config, topic, sizeof(topic));
+    mqtt_send_publish(fd, topic, "OFF", true);
+    mqtt_backlight_state_topic(config, topic, sizeof(topic));
+    mqtt_send_publish(fd, topic, "OFF", true);
+    mqtt_state_topic(config, "backlight", topic, sizeof(topic));
+    mqtt_send_publish(fd, topic, "OFF", true);
+}
+
 void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *config, SensorSnapshot *snapshot, bool force) {
     char value[64];
     u32 percent = 0;
@@ -362,15 +393,16 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
     mutexLock(&state->lock);
     bool power_sleeping = state->power_sleeping;
     mutexUnlock(&state->lock);
+    bool psm_open = svc_mqtt_is_open(SvcId_Psm);
 
-    if (R_SUCCEEDED(psmGetBatteryChargePercentage(&percent))) {
+    if (psm_open && R_SUCCEEDED(psmGetBatteryChargePercentage(&percent))) {
         snprintf(value, sizeof(value), "%u", percent);
         publish_if_changed(fd, config, snapshot, force, "battery", snapshot->battery, sizeof(snapshot->battery), value);
     } else if (force) {
         publish_if_changed(fd, config, snapshot, force, "battery", snapshot->battery, sizeof(snapshot->battery), "0");
     }
 
-    if (R_SUCCEEDED(psmGetChargerType(&charger))) {
+    if (psm_open && R_SUCCEEDED(psmGetChargerType(&charger))) {
         publish_if_changed(fd, config, snapshot, force, "charging", snapshot->charging, sizeof(snapshot->charging),
                            charger == PsmChargerType_Unconnected ? "OFF" : "ON");
         publish_if_changed(fd, config, snapshot, force, "charger_type", snapshot->charger_type, sizeof(snapshot->charger_type),
@@ -380,7 +412,7 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         publish_if_changed(fd, config, snapshot, force, "charger_type", snapshot->charger_type, sizeof(snapshot->charger_type), "unknown");
     }
 
-    if (R_SUCCEEDED(psmGetBatteryChargeInfoFields(&info))) {
+    if (psm_open && R_SUCCEEDED(psmGetBatteryChargeInfoFields(&info))) {
         snprintf(value, sizeof(value), "%u", info.battery_charge_milli_voltage);
         publish_if_changed(fd, config, snapshot, force, "battery_voltage", snapshot->battery_voltage, sizeof(snapshot->battery_voltage), value);
 
@@ -399,15 +431,17 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         publish_if_changed(fd, config, snapshot, force, "backlight", snapshot->backlight, sizeof(snapshot->backlight), "OFF");
         char bl_stat_top[192];
         mqtt_backlight_state_topic(config, bl_stat_top, sizeof(bl_stat_top));
-        mqtt_send_publish(fd, bl_stat_top, "OFF", true);
-    } else if (state->svc_lbl_ready) {
+        publish_topic_if_changed(fd, snapshot, force, bl_stat_top, "OFF");
+    } else if (state->svc_lbl_ready && R_SUCCEEDED(svc_open(SvcId_Lbl))) {
+        // lbl stays closed between reads: fatal opens its own session to show
+        // an error screen and aborts if none is left.
         float brightness = 0.0f;
         if (R_SUCCEEDED(lblGetCurrentBrightnessSetting(&brightness)) || R_SUCCEEDED(lblGetBrightnessSettingAppliedToBacklight(&brightness))) {
             snprintf(value, sizeof(value), "%.0f", (double) (brightness * 100.0f));
             publish_if_changed(fd, config, snapshot, force, "brightness", snapshot->brightness, sizeof(snapshot->brightness), value);
             char br_stat_top[192];
             mqtt_brightness_state_topic(config, br_stat_top, sizeof(br_stat_top));
-            mqtt_send_publish(fd, br_stat_top, value, true);
+            publish_topic_if_changed(fd, snapshot, force, br_stat_top, value);
         }
 
         LblBacklightSwitchStatus backlight = LblBacklightSwitchStatus_Disabled;
@@ -416,11 +450,12 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
             publish_if_changed(fd, config, snapshot, force, "backlight", snapshot->backlight, sizeof(snapshot->backlight), bl_val);
             char bl_stat_top[192];
             mqtt_backlight_state_topic(config, bl_stat_top, sizeof(bl_stat_top));
-            mqtt_send_publish(fd, bl_stat_top, bl_val, true);
+            publish_topic_if_changed(fd, snapshot, force, bl_stat_top, bl_val);
         }
+        svc_close(SvcId_Lbl);
     }
 
-    if (state->svc_audctl_ready) {
+    if (svc_mqtt_is_open(SvcId_Audctl)) {
         AudioTarget audio_target = AudioTarget_Invalid;
         if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
             publish_if_changed(fd, config, snapshot, force, "audio_target", snapshot->audio_target, sizeof(snapshot->audio_target),
@@ -469,7 +504,8 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         HidNpadIdType_No1, HidNpadIdType_No2, HidNpadIdType_No3, HidNpadIdType_No4,
         HidNpadIdType_No5, HidNpadIdType_No6, HidNpadIdType_No7, HidNpadIdType_No8
     };
-    if (state->svc_hid_ready) {
+    // hid reads abort the process when hid is not open: keep them in this block.
+    if (svc_mqtt_is_open(SvcId_Hid)) {
         int player_controller_count = 0;
         char player_values[MAX_PLAYERS][32];
         char player_wired_values[MAX_PLAYERS][8];
@@ -531,13 +567,13 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         char rem_act_top[192];
         mqtt_remote_state_topic(config, remote_topic, sizeof(remote_topic));
         mqtt_remote_activity_state_topic(config, rem_act_top, sizeof(rem_act_top));
-        mqtt_send_publish(fd, remote_topic, power_sleeping ? "OFF" : "ON", true);
+        publish_topic_if_changed(fd, snapshot, force, remote_topic, power_sleeping ? "OFF" : "ON");
 
         const char *current_game_name = (strcmp(snapshot->game_running, "ON") == 0 &&
                                          snapshot->current_game_name[0] != '\0' &&
                                          strcmp(snapshot->current_game_name, "none") != 0) ?
                                          snapshot->current_game_name : "Home Menu";
-        mqtt_send_publish(fd, rem_act_top, current_game_name, true);
+        publish_topic_if_changed(fd, snapshot, force, rem_act_top, current_game_name);
     }
     {
         char mp_state_top[192];
@@ -564,7 +600,7 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
             mp_state = (strcmp(snapshot->game_running, "ON") == 0) ? "playing" : "idle";
         }
         if (force || !snapshot->initialized || strcmp(snapshot->mp_state, mp_state) != 0) {
-            mqtt_send_publish(fd, mp_state_top, mp_state, true);
+            publish_topic_if_changed(fd, snapshot, force, mp_state_top, mp_state);
             snprintf(snapshot->mp_state, sizeof(snapshot->mp_state), "%s", mp_state);
         }
 
@@ -577,7 +613,7 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         char vol_payload[16];
         snprintf(vol_payload, sizeof(vol_payload), "%.2f", vol_float);
         if (force || !snapshot->initialized || strcmp(snapshot->mp_volume, vol_payload) != 0) {
-            mqtt_send_publish(fd, mp_vol_top, vol_payload, true);
+            publish_topic_if_changed(fd, snapshot, force, mp_vol_top, vol_payload);
             snprintf(snapshot->mp_volume, sizeof(snapshot->mp_volume), "%s", vol_payload);
         }
 
@@ -610,13 +646,13 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
                 snprintf(mp_attr_json, sizeof(mp_attr_json), "{\"title_id\":\"none\",\"players_max\":0}");
             }
 
-            mqtt_send_publish(fd, mp_title_top, snapshot->current_game_name, true);
-            mqtt_send_publish(fd, mp_attr_top, mp_attr_json, true);
-            mqtt_send_publish(fd, mp_src_top, current_game_name, true);
-            mqtt_send_publish(fd, sel_game_top, current_game_name, true);
-            mqtt_send_publish(fd, sel_2p_top, current_players >= 2 ? current_game_name : "Home Menu", true);
-            mqtt_send_publish(fd, sel_4p_top, current_players >= 4 ? current_game_name : "Home Menu", true);
-            mqtt_send_publish(fd, sel_8p_top, current_players >= 8 ? current_game_name : "Home Menu", true);
+            publish_topic_if_changed(fd, snapshot, force, mp_title_top, snapshot->current_game_name);
+            publish_topic_if_changed(fd, snapshot, force, mp_attr_top, mp_attr_json);
+            publish_topic_if_changed(fd, snapshot, force, mp_src_top, current_game_name);
+            publish_topic_if_changed(fd, snapshot, force, sel_game_top, current_game_name);
+            publish_topic_if_changed(fd, snapshot, force, sel_2p_top, current_players >= 2 ? current_game_name : "Home Menu");
+            publish_topic_if_changed(fd, snapshot, force, sel_4p_top, current_players >= 4 ? current_game_name : "Home Menu");
+            publish_topic_if_changed(fd, snapshot, force, sel_8p_top, current_players >= 8 ? current_game_name : "Home Menu");
 
             snprintf(snapshot->mp_title, sizeof(snapshot->mp_title), "%s", snapshot->current_game_name);
             snprintf(snapshot->mp_source, sizeof(snapshot->mp_source), "%s", current_game_name);
@@ -634,25 +670,25 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
                 snprintf(count_str, sizeof(count_str), "%zu", count_2p);
                 mqtt_state_topic(config, "games_2p", sensor_topic, sizeof(sensor_topic));
                 mqtt_sensor_attr_topic(config, "games_2p", attr_top, sizeof(attr_top));
-                mqtt_send_publish(fd, sensor_topic, count_str, true);
+                publish_topic_if_changed(fd, snapshot, force, sensor_topic, count_str);
                 title_cache_build_json_games_attr(games_attr, 8192, 2);
-                mqtt_send_publish(fd, attr_top, games_attr, true);
+                publish_topic_if_changed(fd, snapshot, force, attr_top, games_attr);
 
                 size_t count_4p = title_cache_get_games_by_min_players(NULL, 0, 4);
                 snprintf(count_str, sizeof(count_str), "%zu", count_4p);
                 mqtt_state_topic(config, "games_4p", sensor_topic, sizeof(sensor_topic));
                 mqtt_sensor_attr_topic(config, "games_4p", attr_top, sizeof(attr_top));
-                mqtt_send_publish(fd, sensor_topic, count_str, true);
+                publish_topic_if_changed(fd, snapshot, force, sensor_topic, count_str);
                 title_cache_build_json_games_attr(games_attr, 8192, 4);
-                mqtt_send_publish(fd, attr_top, games_attr, true);
+                publish_topic_if_changed(fd, snapshot, force, attr_top, games_attr);
 
                 size_t count_8p = title_cache_get_games_by_min_players(NULL, 0, 8);
                 snprintf(count_str, sizeof(count_str), "%zu", count_8p);
                 mqtt_state_topic(config, "games_8p", sensor_topic, sizeof(sensor_topic));
                 mqtt_sensor_attr_topic(config, "games_8p", attr_top, sizeof(attr_top));
-                mqtt_send_publish(fd, sensor_topic, count_str, true);
+                publish_topic_if_changed(fd, snapshot, force, sensor_topic, count_str);
                 title_cache_build_json_games_attr(games_attr, 8192, 8);
-                mqtt_send_publish(fd, attr_top, games_attr, true);
+                publish_topic_if_changed(fd, snapshot, force, attr_top, games_attr);
 
                 snapshot->games_count_2p = (int)count_2p;
                 snapshot->games_count_4p = (int)count_4p;
@@ -692,7 +728,7 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         snprintf(update_payload, sizeof(update_payload),
                  "{\"installed_version\":\"%s\",\"latest_version\":\"%s\",\"title\":\"Nintendo Switch Firmware\",\"release_url\":\"https://github.com/THZoria/NX_Firmware/releases\"}",
                  safe_fw_update, safe_fw_update);
-        mqtt_send_publish(fd, update_top, update_payload, true);
+        publish_topic_if_changed(fd, snapshot, force, update_top, update_payload);
 
         char safe_ams_update[64] = "1.12.0";
         if (strcmp(ams_ver, "Unknown") != 0 && strcmp(ams_ver, fw_ver) != 0 && strncmp(ams_ver, "23.", 3) != 0) {
@@ -708,19 +744,20 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
                  "\"release_url\":\"https://github.com/Atmosphere-NX/Atmosphere/releases/latest\","
                  "\"entity_picture\":\"https://avatars.githubusercontent.com/u/39328464\"}",
                  safe_ams_update, safe_ams_update);
-        mqtt_send_publish(fd, ams_update_top, ams_payload, true);
+        publish_topic_if_changed(fd, snapshot, force, ams_update_top, ams_payload);
 
         char diag_state_top[192];
         mqtt_diagnostics_state_topic(config, diag_state_top, sizeof(diag_state_top));
-        mqtt_send_publish(fd, diag_state_top, "healthy", true);
+        publish_topic_if_changed(fd, snapshot, force, diag_state_top, "healthy");
     }
-    {
-        AppletOperationMode op_mode = appletGetOperationMode();
-        bool is_docked = (op_mode != AppletOperationMode_Handheld);
+    // appletGetOperationMode() needs an applet: in the sysmodule it always
+    // reported handheld. The apm performance mode is Boost only when docked.
+    ApmPerformanceMode perf_mode = ApmPerformanceMode_Invalid;
+    if (svc_mqtt_is_open(SvcId_Apm) && R_SUCCEEDED(apmGetPerformanceMode(&perf_mode)) && perf_mode != ApmPerformanceMode_Invalid) {
         publish_if_changed(fd, config, snapshot, force, "docked", snapshot->docked, sizeof(snapshot->docked),
-                           is_docked ? "ON" : "OFF");
+                           perf_mode == ApmPerformanceMode_Boost ? "ON" : "OFF");
     }
-    if (state->svc_ts_ready) {
+    if (svc_mqtt_is_open(SvcId_Ts)) {
         s32 soc_temp = 0;
         if (R_SUCCEEDED(tsGetTemperature(TsLocation_Internal, &soc_temp))) {
             snprintf(value, sizeof(value), "%.1f", (double) soc_temp / 1000.0);
@@ -732,7 +769,7 @@ void mqtt_publish_switch_sensors(AppState *state, int fd, const AppConfig *confi
         snprintf(value, sizeof(value), "%llu", (unsigned long long) uptime_s);
         publish_if_changed(fd, config, snapshot, force, "uptime", snapshot->uptime, sizeof(snapshot->uptime), value);
     }
-    if (state->svc_nifm_ready) {
+    if (svc_mqtt_is_open(SvcId_Nifm)) {
         u32 rssi = 0;
         if (R_SUCCEEDED(nifmGetInternetConnectionStatus(NULL, &rssi, NULL))) {
             snprintf(value, sizeof(value), "%u", rssi);

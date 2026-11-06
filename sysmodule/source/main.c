@@ -3,6 +3,7 @@
 #include "logger.h"
 #include "mqtt_client.h"
 #include "screen_stream.h"
+#include "svc_session.h"
 
 #include <switch.h>
 #include <stdio.h>
@@ -15,6 +16,12 @@
 #define OPTIONAL_INIT_TIMEOUT_NS (1500ULL * 1000ULL * 1000ULL)
 #define RESULT_OPTIONAL_TIMEOUT MAKERESULT(Module_Libnx, LibnxError_Timeout)
 #define RESULT_NOT_INITIALIZED MAKERESULT(Module_Libnx, LibnxError_NotInitialized)
+// psc only dispatches to ids in the system range (up to 127, Spsm): with
+// 0x5348 the module registered fine but never received a single request.
+// 120 is unused by the system (sys-con uses 126) and was verified on hardware.
+#define SHA_PSC_MODULE_ID ((PscPmModuleId) 120)
+#define SLEEP_SOCKETS_TIMEOUT_MS 3000
+#define SLEEP_SOCKETS_FORCE_MS 1500
 
 static Result g_socket_init_result = RESULT_NOT_INITIALIZED;
 static Result g_psm_init_result = RESULT_NOT_INITIALIZED;
@@ -27,6 +34,8 @@ static Result g_pminfo_init_result = RESULT_NOT_INITIALIZED;
 static Result g_setsys_init_result = RESULT_NOT_INITIALIZED;
 static Result g_ts_init_result = RESULT_NOT_INITIALIZED;
 static Result g_nifm_init_result = RESULT_NOT_INITIALIZED;
+static Result g_psc_init_result = RESULT_NOT_INITIALIZED;
+static PscPmModule g_psc_module;
 static Thread g_power_guard_thread = {0};
 static bool g_power_guard_thread_active = false;
 
@@ -48,6 +57,22 @@ void __appInit(void) {
         diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_SM));
     }
 
+    // A custom __appInit skips libnx's default one, which is what sets the
+    // firmware version. Without it hosversionGet() returns 0 and libnx takes
+    // its old-firmware code paths: psc acknowledges with the pre-5.1.0
+    // command, psm reads the pre-17.0.0 battery struct layout, nifm uses the
+    // pre-3.0.0 general service, ...
+    if (hosversionGet() == 0) {
+        rc = setsysInitialize();
+        if (R_SUCCEEDED(rc)) {
+            SetSysFirmwareVersion fw;
+            if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
+                hosversionSet(MAKEHOSVERSION(fw.major, fw.minor, fw.micro));
+            }
+            setsysExit();
+        }
+    }
+
     rc = fsInitialize();
     if (R_FAILED(rc)) {
         diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_FS));
@@ -60,17 +85,12 @@ void __appExit(void) {
         threadClose(&g_power_guard_thread);
         g_power_guard_thread_active = false;
     }
-    if (R_SUCCEEDED(g_nifm_init_result)) nifmExit();
-    if (R_SUCCEEDED(g_ts_init_result)) tsExit();
-    if (R_SUCCEEDED(g_setsys_init_result)) setsysExit();
-    if (R_SUCCEEDED(g_pminfo_init_result)) pminfoExit();
-    if (R_SUCCEEDED(g_audctl_init_result)) audctlExit();
-    if (R_SUCCEEDED(g_lbl_init_result)) lblExit();
-    if (R_SUCCEEDED(g_hid_init_result)) hidExit();
+    if (R_SUCCEEDED(g_psc_init_result)) {
+        pscPmModuleFinalize(&g_psc_module);
+        pscPmModuleClose(&g_psc_module);
+        pscmExit();
+    }
     screen_stream_stop();
-    if (R_SUCCEEDED(g_spl_init_result)) splExit();
-    if (R_SUCCEEDED(g_spsm_init_result)) spsmExit();
-    if (R_SUCCEEDED(g_psm_init_result)) psmExit();
     if (R_SUCCEEDED(g_socket_init_result)) socketExit();
     fsdevUnmountAll();
     fsExit();
@@ -98,50 +118,176 @@ static void init_core_services(AppState *state) {
     g_socket_init_result = socketInitialize(&socket_config);
     LOG_I("sys", "socketInitialize rc=0x%x", g_socket_init_result);
 
+    // psm is opened again for each MQTT connection (svc_session).
     g_psm_init_result = psmInitialize();
-    LOG_I("sys", "psmInitialize rc=0x%x", g_psm_init_result);
+    if (R_SUCCEEDED(g_psm_init_result)) psmExit();
+    state->svc_psm_ready = R_SUCCEEDED(g_psm_init_result);
+    LOG_I("sys", "psm probe rc=0x%x", g_psm_init_result);
 
+    // Only probe spsm: keeping a session open exhausts its session limit and
+    // makes fatal/am abort on reboot (OutOfSessions, 0x615). It is opened
+    // again for each reboot/shutdown/sleep request (svc_session).
     g_spsm_init_result = spsmInitialize();
+    if (R_SUCCEEDED(g_spsm_init_result)) spsmExit();
     state->svc_spsm_ready = R_SUCCEEDED(g_spsm_init_result);
-    LOG_I("sys", "spsmInitialize rc=0x%x", g_spsm_init_result);
+    LOG_I("sys", "spsm probe rc=0x%x", g_spsm_init_result);
 
+    // spl is opened again only to read the Atmosphere version (svc_session).
     g_spl_init_result = splInitialize();
+    if (R_SUCCEEDED(g_spl_init_result)) splExit();
     state->svc_spl_ready = R_SUCCEEDED(g_spl_init_result);
-    LOG_I("sys", "splInitialize rc=0x%x", g_spl_init_result);
+    LOG_I("sys", "spl probe rc=0x%x", g_spl_init_result);
 
     LOG_I("sys", "Core service init completed");
 }
 
+static void set_power_sleeping(AppState *state, bool sleeping) {
+    mutexLock(&state->lock);
+    state->power_sleeping = sleeping;
+    state->sensor_publish_requested = true;
+    mutexUnlock(&state->lock);
+    screen_stream_set_paused(sleeping);
+}
+
+// Live sockets and in-flight poll() calls make the power transition fail
+// (omm then aborts with a psc error), so both MQTT and RTSP must be closed
+// before the request is acknowledged. The MQTT thread sees power_sleeping,
+// publishes the "off" states, disconnects cleanly and closes its socket.
+static bool sockets_closed_now(AppState *state) {
+    mutexLock(&state->lock);
+    bool connected = state->mqtt_connected;
+    mutexUnlock(&state->lock);
+    return !connected && mqtt_service_socket_idle() && screen_stream_sockets_closed();
+}
+
+// Returns a short description of what was still open, or NULL when all closed.
+static const char *wait_for_sockets_closed(AppState *state) {
+    u64 start = monotonic_ms();
+    bool forced = false;
+    while (monotonic_ms() - start < SLEEP_SOCKETS_TIMEOUT_MS) {
+        if (sockets_closed_now(state)) {
+            return NULL;
+        }
+        if (!forced && monotonic_ms() - start >= SLEEP_SOCKETS_FORCE_MS) {
+            // A send()/poll() blocked on a network that is going down would
+            // keep its socket open past psc's deadline: force them to fail.
+            mqtt_service_abort_socket();
+            screen_stream_close_sockets();
+            forced = true;
+        }
+        svcSleepThread(50ULL * 1000ULL * 1000ULL);
+    }
+    if (!mqtt_service_socket_idle()) return "mqtt";
+    if (!screen_stream_sockets_closed()) return "rtsp";
+    return "mqtt state";
+}
+
+static bool is_going_down(PscPmState pm_state, PscPmState previous) {
+    switch (pm_state) {
+        case PscPmState_ReadyAwaken:         // MinimumAwake
+            // First step of sleep when coming from FullAwake; on wake-up it is
+            // reached from EssentialServicesAwake instead.
+            return previous == PscPmState_Awake;
+        case PscPmState_ReadySleep:          // SleepReady
+        case PscPmState_ReadySleepCritical:  // EssentialServicesSleepReady
+        case PscPmState_ReadyShutdown:       // ShutdownReady
+            return true;
+        default:
+            return false;
+    }
+}
+
+// psc notifies registered modules before the console sleeps or shuts down and
+// after it wakes, in handheld and docked mode alike. The handheld backlight
+// cannot be used for this: it is also off while docked, which used to pause
+// the RTSP stream whenever the console was in the dock.
+// libnx names the states differently; the official names are used in the
+// comments: 0 FullAwake, 1 MinimumAwake, 2 SleepReady,
+// 3 EssentialServicesSleepReady, 4 EssentialServicesAwake, 5 ShutdownReady.
+// Sleep goes 0 -> 1 -> 2 -> 3, wake-up 3 -> 4 -> 1 -> 0.
 static void power_guard_thread_main(void *arg) {
     AppState *state = arg;
-    bool last_sleeping = false;
+    PscPmState previous = PscPmState_Awake;
 
     while (true) {
-        // In sysmodule mode, appletGetOperationMode() is not available / returns 0.
-        // Screen backlight turning off or dimming must NOT mark the system as sleeping!
-        // When power_sleeping was set to true, MQTT heartbeats stopped and HA marked
-        // all entities as unavailable.
-        // We only use backlight status to pause RTSP screen streaming if screen is off in handheld.
-        bool screen_off = false;
-        if (state->svc_lbl_ready) {
-            LblBacklightSwitchStatus backlight = LblBacklightSwitchStatus_Enabled;
-            if (R_SUCCEEDED(lblGetBacklightSwitchStatus(&backlight))) {
-                screen_off = (backlight == LblBacklightSwitchStatus_Disabled ||
-                              backlight == LblBacklightSwitchStatus_Disabling);
+        if (R_FAILED(eventWait(&g_psc_module.event, UINT64_MAX))) {
+            continue;
+        }
+
+        PscPmState pm_state;
+        u32 flags = 0;
+        if (R_FAILED(pscPmModuleGetRequest(&g_psc_module, &pm_state, &flags))) {
+            continue;
+        }
+
+        // psc waits for every module with a deadline, so nothing slow may run
+        // before the acknowledgement. LOG_* writes to the SD card through the
+        // single fs session shared by all threads, so it is done afterwards.
+        // Sockets are closed at the very first step of sleep (MinimumAwake):
+        // once that step is acknowledged the network is already being
+        // suspended and sends can block.
+        const char *event = NULL;
+        const char *still_open = NULL;
+        u64 wait_ms = 0;
+        if (is_going_down(pm_state, previous)) {
+            if (!state->power_sleeping) {
+                // From here until FullAwake nothing in this process touches
+                // the SD card (see logger_set_file_suspended).
+                logger_set_file_suspended(true);
+                u64 start = monotonic_ms();
+                set_power_sleeping(state, true);
+                still_open = wait_for_sockets_closed(state);
+                wait_ms = monotonic_ms() - start;
+                event = pm_state == PscPmState_ReadyShutdown ? "shutdown" : "sleep";
+            }
+        } else if (pm_state == PscPmState_Awake) {
+            if (state->power_sleeping) {
+                set_power_sleeping(state, false);
+                event = "awake";
             }
         }
+        previous = pm_state;
 
-        if (screen_off != last_sleeping) {
-            screen_stream_set_paused(screen_off);
-            last_sleeping = screen_off;
+        Result ack_rc = pscPmModuleAcknowledge(&g_psc_module, pm_state);
+
+        LOG_D("power", "psc state=%d flags=0x%x ack=0x%x", (int) pm_state, flags, ack_rc);
+        if (event) {
+            LOG_I("power", "power: %s (sockets closed in %llu ms)", event, (unsigned long long) wait_ms);
         }
-
-        svcSleepThread(1000ULL * 1000ULL * 1000ULL);
+        if (still_open) {
+            LOG_W("power", "power: sockets close timed out (%s still open)", still_open);
+        }
+        if (event && strcmp(event, "awake") == 0) {
+            // fs is fully awake again: write the lines kept in memory.
+            logger_set_file_suspended(false);
+        }
     }
 }
 
 static void init_power_guard(AppState *state) {
-    Result rc = threadCreate(&g_power_guard_thread, power_guard_thread_main, state, NULL, 0x4000, 0x2B, -2);
+    // Fs only, like sys-con. Builds that also depended on WlanSockets and Nifm
+    // hung the console on every sleep (stuck after MinimumAwake/SleepReady,
+    // never reaching EssentialServicesSleepReady).
+    static const u32 dependencies[] = {PscPmModuleId_Fs};
+
+    Result rc = smInitialize();
+    if (R_SUCCEEDED(rc)) {
+        rc = pscmInitialize();
+        if (R_SUCCEEDED(rc)) {
+            rc = pscmGetPmModule(&g_psc_module, SHA_PSC_MODULE_ID, dependencies, sizeof(dependencies) / sizeof(dependencies[0]), true);
+            if (R_FAILED(rc)) {
+                pscmExit();
+            }
+        }
+        smExit();
+    }
+    g_psc_init_result = rc;
+    LOG_I("sys", "psc_init rc=0x%x", rc);
+    if (R_FAILED(rc)) {
+        return;
+    }
+
+    rc = threadCreate(&g_power_guard_thread, power_guard_thread_main, state, NULL, 0x4000, 0x2B, -2);
     if (R_FAILED(rc)) {
         LOG_E("sys", "threadCreate power_guard failed rc=0x%x", rc);
         return;
@@ -182,33 +328,46 @@ typedef struct {
     Result rc;
 } OptionalInitTask;
 
+// Every optional service is only probed: the session is closed in this thread,
+// so it is released even if the probe finishes after the timeout. Sessions are
+// opened again where they are used (see svc_session.h for the lifetimes).
 static void optional_init_thread(void *arg) {
     OptionalInitTask *task = arg;
     Result rc = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
     switch (task->service) {
         case OptionalService_Hid:
             rc = hidInitialize();
+            if (R_SUCCEEDED(rc)) hidExit();
             break;
         case OptionalService_Lbl:
+            // fatal opens its own lbl session to show an error screen and
+            // aborts if none is left.
             rc = lblInitialize();
+            if (R_SUCCEEDED(rc)) lblExit();
             break;
         case OptionalService_Audctl:
             rc = audctlInitialize();
+            if (R_SUCCEEDED(rc)) audctlExit();
             break;
         case OptionalService_Pminfo:
             rc = pminfoInitialize();
+            if (R_SUCCEEDED(rc)) pminfoExit();
             break;
         case OptionalService_Setsys:
             rc = setsysInitialize();
+            if (R_SUCCEEDED(rc)) setsysExit();
             break;
         case OptionalService_Spl:
             rc = splInitialize();
+            if (R_SUCCEEDED(rc)) splExit();
             break;
         case OptionalService_Ts:
             rc = tsInitialize();
+            if (R_SUCCEEDED(rc)) tsExit();
             break;
         case OptionalService_Nifm:
             rc = nifmInitialize(NifmServiceType_System);
+            if (R_SUCCEEDED(rc)) nifmExit();
             break;
     }
     task->rc = rc;
@@ -330,6 +489,8 @@ static void write_heartbeat(AppState *state) {
     fprintf(file, "setsys_init=0x%x\n", g_setsys_init_result);
     fprintf(file, "ts_init=0x%x\n", g_ts_init_result);
     fprintf(file, "nifm_init=0x%x\n", g_nifm_init_result);
+    fprintf(file, "psc_init=0x%x\n", g_psc_init_result);
+    fprintf(file, "hos_version=%u.%u.%u\n", HOSVER_MAJOR(hosversionGet()), HOSVER_MINOR(hosversionGet()), HOSVER_MICRO(hosversionGet()));
     mutexUnlock(&state->lock);
 
     fclose(file);
@@ -357,12 +518,22 @@ int main(int argc, char **argv) {
     init_optional_services(&state);
     app_state_refresh_device_info(&state);
     screen_stream_start(&state);
+    // Registered after the system services are up.
     init_power_guard(&state);
 
     mqtt_service_start(&state);
     LOG_I("mqtt", "MQTT worker thread launched");
 
     while (true) {
+        mutexLock(&state.lock);
+        bool sleeping_now = state.power_sleeping;
+        mutexUnlock(&state.lock);
+        if (sleeping_now) {
+            // No SD card access while the console goes to sleep or sleeps.
+            svcSleepThread(1000ULL * 1000ULL * 1000ULL);
+            continue;
+        }
+
         AppConfig loaded;
         if (config_load(&loaded)) {
             mutexLock(&state.lock);

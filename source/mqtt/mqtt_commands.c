@@ -4,6 +4,7 @@
 #include "mqtt/mqtt_topics.h"
 #include "logger.h"
 #include "title_cache.h"
+#include "svc_session.h"
 
 
 #include <switch.h>
@@ -48,6 +49,119 @@ static void mqtt_publish_cmd_status(int fd, const AppConfig *config, const char 
     mqtt_send_publish(fd, stat_topic, payload, false);
 }
 
+typedef enum {
+    PowerAction_Reboot,
+    PowerAction_Shutdown,
+    PowerAction_Sleep,
+} PowerAction;
+
+static const char *power_action_name(PowerAction action) {
+    switch (action) {
+        case PowerAction_Reboot: return "reboot";
+        case PowerAction_Shutdown: return "shutdown";
+        default: return "sleep";
+    }
+}
+
+// spsm is opened only for the request: keeping a session open makes fatal/am
+// abort on reboot (OutOfSessions, 0x615).
+static Result request_power_off(bool reboot) {
+    Result rc = svc_open(SvcId_Spsm);
+    if (R_FAILED(rc)) {
+        return rc;
+    }
+    rc = spsmShutdown(reboot);
+    svc_close(SvcId_Spsm);
+    return rc;
+}
+
+static Result request_sleep_spsm(void) {
+    Result rc = svc_open(SvcId_Spsm);
+    if (R_FAILED(rc)) {
+        return rc;
+    }
+    // Command 1 on spsm IPowerStateInterface is EnterSleep
+    rc = serviceDispatch(spsmGetServiceSession(), 1);
+    svc_close(SvcId_Spsm);
+    return rc;
+}
+
+// Power requests run on their own short-lived thread. spsm does not return
+// until the power sequence moves on, and that sequence (psc) waits for the MQTT
+// thread to publish the "off" states and close its socket; doing the request
+// on the MQTT thread would block it until psc's timeout, with the socket open.
+static Thread g_power_thread;
+static bool g_power_thread_created = false;
+static volatile bool g_power_thread_done = false;
+static PowerAction g_power_action;
+static AppState *g_power_state = NULL;
+
+static void power_action_thread(void *arg) {
+    (void) arg;
+    PowerAction action = g_power_action;
+    Result rc;
+    if (action == PowerAction_Sleep) {
+        rc = request_sleep_spsm();
+        if (R_FAILED(rc)) {
+            LOG_W("power", "sleep via spsm failed rc=0x%x, using svcSleepSystem", rc);
+            // Privileged syscall svcSleepSystem (0x4D) fallback
+            svcSleepSystem();
+            rc = 0;
+        }
+    } else {
+        rc = request_power_off(action == PowerAction_Reboot);
+    }
+    if (R_FAILED(rc)) {
+        LOG_W("power", "%s failed rc=0x%x", power_action_name(action), rc);
+        if (g_power_state) {
+            app_state_push_log(g_power_state, "%s failed: spsm 0x%x", power_action_name(action), rc);
+        }
+    }
+    g_power_thread_done = true;
+}
+
+static bool start_power_action(AppState *state, PowerAction action) {
+    if (g_power_thread_created) {
+        if (!g_power_thread_done) {
+            return false;  // A request is still in progress.
+        }
+        threadWaitForExit(&g_power_thread);
+        threadClose(&g_power_thread);
+        g_power_thread_created = false;
+    }
+    g_power_action = action;
+    g_power_state = state;
+    g_power_thread_done = false;
+    if (R_FAILED(threadCreate(&g_power_thread, power_action_thread, NULL, NULL, 0x4000, 0x2B, -2))) {
+        return false;
+    }
+    if (R_FAILED(threadStart(&g_power_thread))) {
+        threadClose(&g_power_thread);
+        return false;
+    }
+    g_power_thread_created = true;
+    return true;
+}
+
+static void handle_power_command(AppState *state, int fd, const AppConfig *config, PowerAction action, const char *source) {
+    const char *name = power_action_name(action);
+    // Warning level on purpose: every power request must leave a trace in the
+    // SD card log (the "RX publish" line just before it names the topic).
+    LOG_W("power", "%s request accepted (source: %s)", name, source);
+    app_state_push_log(state, "%s %s accepted", source, name);
+    if (start_power_action(state, action)) {
+        mqtt_publish_cmd_status(fd, config, name, "success");
+    } else {
+        LOG_W("mqtt", "%s %s failed to start", source, name);
+        app_state_push_log(state, "%s %s failed to start", source, name);
+        mqtt_publish_cmd_status(fd, config, name, "failed");
+    }
+}
+
+static void handle_power_off_command(AppState *state, int fd, const AppConfig *config, bool reboot, const char *source) {
+    handle_power_command(state, fd, config, reboot ? PowerAction_Reboot : PowerAction_Shutdown, source);
+}
+
 static void handle_remote_command(AppState *state, int fd, const AppConfig *config, const char *cmd) {
     if (!cmd || cmd[0] == '\0') {
         return;
@@ -55,68 +169,26 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
     app_state_push_log(state, "Remote command: %s", cmd);
 
     if (strcasecmp(cmd, "reboot") == 0 || strcasecmp(cmd, "restart") == 0) {
-        if (!state->svc_spsm_ready) {
-            LOG_I("mqtt", "spsm not ready, attempting re-initialization for remote reboot");
-            if (R_SUCCEEDED(spsmInitialize())) {
-                state->svc_spsm_ready = true;
-            }
-        }
-        if (state->svc_spsm_ready) {
-            app_state_push_log(state, "Remote reboot accepted");
-            mqtt_publish_cmd_status(fd, config, "reboot", "success");
-            spsmShutdown(true);
-        } else {
-            app_state_push_log(state, "Remote reboot failed: spsm not ready");
-            mqtt_publish_cmd_status(fd, config, "reboot", "failed_spsm");
-        }
+        handle_power_off_command(state, fd, config, true, "Remote");
     } else if (strcasecmp(cmd, "shutdown") == 0 || strcasecmp(cmd, "poweroff") == 0 || strcasecmp(cmd, "turn_off") == 0 || strcasecmp(cmd, "off") == 0) {
-        if (!state->svc_spsm_ready) {
-            LOG_I("mqtt", "spsm not ready, attempting re-initialization for remote shutdown");
-            if (R_SUCCEEDED(spsmInitialize())) {
-                state->svc_spsm_ready = true;
-            }
-        }
-        if (state->svc_spsm_ready) {
-            app_state_push_log(state, "Remote shutdown accepted");
-            mqtt_publish_cmd_status(fd, config, "shutdown", "success");
-            spsmShutdown(false);
-        } else {
-            app_state_push_log(state, "Remote shutdown failed: spsm not ready");
-            mqtt_publish_cmd_status(fd, config, "shutdown", "failed_spsm");
-        }
+        handle_power_off_command(state, fd, config, false, "Remote");
     } else if (strcasecmp(cmd, "sleep") == 0 || strcasecmp(cmd, "standby") == 0) {
         app_state_push_log(state, "Remote sleep requested");
-        Result rc = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
         if (state->app_mode != AppMode_Sysmodule) {
-            rc = appletRequestToSleep();
+            Result rc = appletRequestToSleep();
             if (R_FAILED(rc)) {
                 rc = appletStartSleepSequence(true);
             }
+            LOG_I("mqtt", "Remote sleep rc=0x%x (mode=%d)", rc, state->app_mode);
+            app_state_push_log(state, "Remote sleep rc=0x%x", rc);
+            mqtt_publish_cmd_status(fd, config, "sleep", R_SUCCEEDED(rc) ? "success" : "failed");
         } else {
-            // In sysmodule mode: use spsm / svcSleepSystem
-            if (!state->svc_spsm_ready) {
-                if (R_SUCCEEDED(spsmInitialize())) {
-                    state->svc_spsm_ready = true;
-                }
-            }
-            if (state->svc_spsm_ready) {
-                // Command 1 on spsm IPowerStateInterface is EnterSleep
-                Service *spsm_srv = spsmGetServiceSession();
-                if (spsm_srv && serviceIsActive(spsm_srv)) {
-                    rc = serviceDispatch(spsm_srv, 1);
-                }
-            }
-            if (R_FAILED(rc)) {
-                // Privileged syscall svcSleepSystem (0x4D) fallback
-                svcSleepSystem();
-                rc = 0;
-            }
+            // In sysmodule mode: spsm (or svcSleepSystem) on the power thread
+            handle_power_command(state, fd, config, PowerAction_Sleep, "Remote");
         }
-        LOG_I("mqtt", "Remote sleep rc=0x%x (mode=%d)", rc, state->app_mode);
-        app_state_push_log(state, "Remote sleep rc=0x%x", rc);
-        mqtt_publish_cmd_status(fd, config, "sleep", R_SUCCEEDED(rc) ? "success" : "failed");
     } else if (strcasecmp(cmd, "close_game") == 0 || strcasecmp(cmd, "close") == 0 || strcasecmp(cmd, "exit_game") == 0) {
         app_state_push_log(state, "Remote close game requested");
+        LOG_W("power", "close_game request accepted (source: Remote)");
         bool terminated = false;
         // 1. Try pmshellTerminateProgram / pmshellTerminateProcess via pm:shell
         bool pmshell_ready = false;
@@ -124,7 +196,7 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
             pmshell_ready = true;
         }
 
-        if (state->svc_pminfo_ready) {
+        if (svc_mqtt_is_open(SvcId_Pminfo)) {
             u64 process_ids[96];
             s32 process_count = 0;
             if (R_SUCCEEDED(svcGetProcessList(&process_count, process_ids, 96))) {
@@ -171,7 +243,7 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
         state->sensor_publish_requested = true;
         mutexUnlock(&state->lock);
     } else if (strcasecmp(cmd, "volume_up") == 0) {
-        if (state->svc_audctl_ready) {
+        if (svc_mqtt_is_open(SvcId_Audctl)) {
             AudioTarget audio_target = AudioTarget_Invalid;
             if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
                 s32 vol = 0, min_v = 0, max_v = 0;
@@ -190,7 +262,7 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
             }
         }
     } else if (strcasecmp(cmd, "volume_down") == 0) {
-        if (state->svc_audctl_ready) {
+        if (svc_mqtt_is_open(SvcId_Audctl)) {
             AudioTarget audio_target = AudioTarget_Invalid;
             if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
                 s32 vol = 0, min_v = 0, max_v = 0;
@@ -209,7 +281,7 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
             }
         }
     } else if (strcasecmp(cmd, "volume_mute") == 0 || strcasecmp(cmd, "mute") == 0) {
-        if (state->svc_audctl_ready) {
+        if (svc_mqtt_is_open(SvcId_Audctl)) {
             AudioTarget audio_target = AudioTarget_Invalid;
             if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
                 s32 min_v = 0;
@@ -222,7 +294,7 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
             }
         }
     } else if (strcasecmp(cmd, "brightness_up") == 0) {
-        if (state->svc_lbl_ready) {
+        if (R_SUCCEEDED(svc_open(SvcId_Lbl))) {
             float b = 0.0f;
             if (R_SUCCEEDED(lblGetCurrentBrightnessSetting(&b))) {
                 b += 0.10f;
@@ -233,9 +305,10 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
                 state->sensor_publish_requested = true;
                 mutexUnlock(&state->lock);
             }
+            svc_close(SvcId_Lbl);
         }
     } else if (strcasecmp(cmd, "brightness_down") == 0) {
-        if (state->svc_lbl_ready) {
+        if (R_SUCCEEDED(svc_open(SvcId_Lbl))) {
             float b = 0.0f;
             if (R_SUCCEEDED(lblGetCurrentBrightnessSetting(&b))) {
                 b -= 0.10f;
@@ -246,17 +319,20 @@ static void handle_remote_command(AppState *state, int fd, const AppConfig *conf
                 state->sensor_publish_requested = true;
                 mutexUnlock(&state->lock);
             }
+            svc_close(SvcId_Lbl);
         }
     } else if (strcasecmp(cmd, "screen_on") == 0) {
-        if (state->svc_lbl_ready) {
+        if (R_SUCCEEDED(svc_open(SvcId_Lbl))) {
             lblSwitchBacklightOn(0);
+            svc_close(SvcId_Lbl);
             mutexLock(&state->lock);
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
         }
     } else if (strcasecmp(cmd, "screen_off") == 0) {
-        if (state->svc_lbl_ready) {
+        if (R_SUCCEEDED(svc_open(SvcId_Lbl))) {
             lblSwitchBacklightOff(0);
+            svc_close(SvcId_Lbl);
             mutexLock(&state->lock);
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
@@ -298,17 +374,13 @@ static void handle_remote_send_command_payload(AppState *state, int fd, const Ap
 }
 
 static void handle_remote_set_payload(AppState *state, int fd, const AppConfig *config, const char *payload) {
-    (void) fd;
-    (void) config;
     if (!payload || payload[0] == '\0') {
         return;
     }
     app_state_push_log(state, "Remote set: %s", payload);
     if (strcasecmp(payload, "OFF") == 0 || strcasecmp(payload, "false") == 0 || strcasecmp(payload, "0") == 0) {
-        if (state->svc_spsm_ready) {
-            app_state_push_log(state, "Remote set OFF -> shutdown");
-            spsmShutdown(false);
-        }
+        app_state_push_log(state, "Remote set OFF -> shutdown");
+        handle_power_off_command(state, fd, config, false, "Remote set OFF");
     }
 }
 
@@ -333,7 +405,7 @@ static void handle_media_player_volume_set(AppState *state, int fd, const AppCon
     double frac = atof(payload);
     if (frac < 0.0) frac = 0.0;
     if (frac > 1.0) frac = 1.0;
-    if (state->svc_audctl_ready) {
+    if (svc_mqtt_is_open(SvcId_Audctl)) {
         AudioTarget audio_target = AudioTarget_Invalid;
         if (R_SUCCEEDED(audctlGetActiveOutputTarget(&audio_target)) || R_SUCCEEDED(audctlGetDefaultTarget(&audio_target))) {
             s32 min_v = 0, max_v = 0;
@@ -481,39 +553,9 @@ static void handle_command_payload(AppState *state, int fd, const AppConfig *con
         (payload[0] == '{' && (strstr(payload, "get_logs") || strstr(payload, "diagnostics")))) {
         handle_get_logs_command(state, fd, config, payload);
     } else if (strcasecmp(payload, "reboot") == 0) {
-        if (!state->svc_spsm_ready) {
-            LOG_I("mqtt", "spsm not ready, attempting re-initialization for reboot");
-            if (R_SUCCEEDED(spsmInitialize())) {
-                state->svc_spsm_ready = true;
-            }
-        }
-        if (!state->svc_spsm_ready) {
-            LOG_W("mqtt", "Reboot unavailable: spsm not ready");
-            app_state_push_log(state, "Reboot failed: spsm not ready");
-            mqtt_publish_cmd_status(fd, config, "reboot", "failed_spsm");
-            return;
-        }
-        LOG_I("mqtt", "Reboot command accepted");
-        app_state_push_log(state, "Reboot command accepted");
-        mqtt_publish_cmd_status(fd, config, "reboot", "success");
-        spsmShutdown(true);
+        handle_power_off_command(state, fd, config, true, "Command");
     } else if (strcasecmp(payload, "shutdown") == 0 || strcasecmp(payload, "poweroff") == 0) {
-        if (!state->svc_spsm_ready) {
-            LOG_I("mqtt", "spsm not ready, attempting re-initialization for shutdown");
-            if (R_SUCCEEDED(spsmInitialize())) {
-                state->svc_spsm_ready = true;
-            }
-        }
-        if (!state->svc_spsm_ready) {
-            LOG_W("mqtt", "Shutdown unavailable: spsm not ready");
-            app_state_push_log(state, "Shutdown failed: spsm not ready");
-            mqtt_publish_cmd_status(fd, config, "shutdown", "failed_spsm");
-            return;
-        }
-        LOG_I("mqtt", "Shutdown command accepted");
-        app_state_push_log(state, "Shutdown command accepted");
-        mqtt_publish_cmd_status(fd, config, "shutdown", "success");
-        spsmShutdown(false);
+        handle_power_off_command(state, fd, config, false, "Command");
     } else if (strcasecmp(payload, "sleep") == 0 || strcasecmp(payload, "standby") == 0) {
         handle_remote_command(state, fd, config, "sleep");
     } else if (strcasecmp(payload, "close_game") == 0 || strcasecmp(payload, "close") == 0 || strcasecmp(payload, "exit_game") == 0) {
@@ -687,6 +729,16 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
         return;
     }
 
+    // Brokers set RETAIN only when replaying a retained message on subscribe
+    // (MQTT 3.1.1, 3.3.1.3); live messages always arrive with it cleared. A
+    // retained command (e.g. "shutdown" published with retain by an automation)
+    // would otherwise run again on every reconnect: after a Wi-Fi drop, a
+    // wake-up or a broker restart.
+    if (buffer[0] & 0x01) {
+        LOG_W("mqtt", "Ignored retained message on '%s'", topic);
+        return;
+    }
+
     int packet_len = 1 + remaining_bytes + remaining;
     if (packet_len > size) {
         packet_len = size;
@@ -783,17 +835,13 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
     } else if (strcmp(topic, ams_update_cmd_topic) == 0) {
         handle_atmosphere_update_command(state, fd, config, payload);
     } else if (strcmp(topic, br_cmd_topic) == 0) {
-        if (!state->svc_lbl_ready) {
-            if (R_SUCCEEDED(lblInitialize())) {
-                state->svc_lbl_ready = true;
-            }
-        }
-        if (state->svc_lbl_ready) {
+        if (R_SUCCEEDED(svc_open(SvcId_Lbl))) {
             float val = (float) atof(payload);
             if (val < 0.0f) val = 0.0f;
             if (val > 100.0f) val = 100.0f;
             Result rc = lblSetCurrentBrightnessSetting(val / 100.0f);
             Result rc_apply = lblApplyCurrentBrightnessSettingToBacklight();
+            svc_close(SvcId_Lbl);
             LOG_I("mqtt", "Set brightness to %.1f%% (rc=0x%x, apply_rc=0x%x)", val, rc, rc_apply);
             app_state_push_log(state, "Set brightness to %.0f%% (rc=0x%x)", val, rc);
             char val_str[16];
@@ -805,18 +853,14 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
         } else {
-            LOG_W("mqtt", "Set brightness failed: lbl not ready");
-            app_state_push_log(state, "Set brightness failed: lbl not ready");
+            LOG_W("mqtt", "Set brightness failed: lbl unavailable");
+            app_state_push_log(state, "Set brightness failed: lbl unavailable");
         }
     } else if (strcmp(topic, bl_cmd_topic) == 0) {
-        if (!state->svc_lbl_ready) {
-            if (R_SUCCEEDED(lblInitialize())) {
-                state->svc_lbl_ready = true;
-            }
-        }
-        if (state->svc_lbl_ready) {
+        if (R_SUCCEEDED(svc_open(SvcId_Lbl))) {
             bool on = (strcasecmp(payload, "ON") == 0 || strcasecmp(payload, "true") == 0 || strcasecmp(payload, "1") == 0);
             Result rc = on ? lblSwitchBacklightOn(0) : lblSwitchBacklightOff(0);
+            svc_close(SvcId_Lbl);
             LOG_I("mqtt", "Switch backlight %s (rc=0x%x)", on ? "ON" : "OFF", rc);
             app_state_push_log(state, "Switch backlight %s (rc=0x%x)", on ? "ON" : "OFF", rc);
             char bl_stat_top[192];
@@ -826,8 +870,8 @@ void mqtt_handle_publish(AppState *state, int fd, const AppConfig *config, const
             state->sensor_publish_requested = true;
             mutexUnlock(&state->lock);
         } else {
-            LOG_W("mqtt", "Switch backlight failed: lbl not ready");
-            app_state_push_log(state, "Switch backlight failed: lbl not ready");
+            LOG_W("mqtt", "Switch backlight failed: lbl unavailable");
+            app_state_push_log(state, "Switch backlight failed: lbl unavailable");
         }
     }
 }
