@@ -2,6 +2,7 @@
 #include "mqtt/mqtt_state.h"
 #include "mqtt/mqtt_topics.h"
 #include "title_cache.h"
+#include "svc_session.h"
 
 #include <switch.h>
 #include <switch/services/applet.h>
@@ -22,6 +23,8 @@ static bool g_logger_initialized = false;
 static char g_log_file_path[128] = "sdmc:/switch/switch-ha/sysmodule.log";
 static AppState *g_app_state = NULL;
 static u32 g_log_write_counter = 0;
+static bool g_file_suspended = false;
+static size_t g_suspended_count = 0;
 
 static const char *LEVEL_NAMES[] = {
     "DEBUG",
@@ -122,7 +125,18 @@ void logger_log_va(LogLevel level, const char *module, const char *fmt, va_list 
     }
 
     AppState *st = g_app_state;
+    bool suspended = g_file_suspended;
+    if (suspended) {
+        g_suspended_count++;
+    }
     mutexUnlock(&g_logger_mutex);
+
+    if (suspended) {
+        if (st) {
+            app_state_push_log(st, "[%s] %s", module ? module : "core", message);
+        }
+        return;
+    }
 
     // Write to disk file
     FILE *f = fopen(g_log_file_path, "a");
@@ -140,6 +154,35 @@ void logger_log_va(LogLevel level, const char *module, const char *fmt, va_list 
     if (st) {
         app_state_push_log(st, "[%s] %s", module ? module : "core", message);
     }
+}
+
+void logger_set_file_suspended(bool suspended) {
+    if (!g_logger_initialized) {
+        mutexInit(&g_logger_mutex);
+        g_logger_initialized = true;
+    }
+    mutexLock(&g_logger_mutex);
+    bool was_suspended = g_file_suspended;
+    g_file_suspended = suspended;
+    size_t pending = g_suspended_count;
+    if (!suspended) {
+        g_suspended_count = 0;
+    }
+    if (was_suspended && !suspended && pending > 0) {
+        if (pending > LOG_RING_CAPACITY) {
+            pending = LOG_RING_CAPACITY;
+        }
+        FILE *f = fopen(g_log_file_path, "a");
+        if (f) {
+            size_t start = (g_log_head + LOG_RING_CAPACITY - pending) % LOG_RING_CAPACITY;
+            for (size_t i = 0; i < pending; ++i) {
+                LogEntry *e = &g_log_ring[(start + i) % LOG_RING_CAPACITY];
+                fprintf(f, "[%llus] [%s] [%s] %s\n", (unsigned long long) e->uptime_s, logger_level_name(e->level), e->module, e->message);
+            }
+            fclose(f);
+        }
+    }
+    mutexUnlock(&g_logger_mutex);
 }
 
 void logger_log(LogLevel level, const char *module, const char *fmt, ...) {
@@ -214,19 +257,22 @@ size_t logger_dump_diagnostics_json(AppState *state, const AppConfig *config, ch
     const char *mac_str = (state && state->cached_mac[0] != '\0') ? state->cached_mac : "00:00:00:00:00:00";
 
     u32 rssi = 0;
-    if (state && state->svc_nifm_ready) {
+    // Runs on the MQTT thread: these sessions are open while MQTT is connected.
+    if (svc_mqtt_is_open(SvcId_Nifm)) {
         nifmGetInternetConnectionStatus(NULL, &rssi, NULL);
     }
 
     u32 battery_pct = 0;
     PsmChargerType charger = PsmChargerType_Unconnected;
     PsmBatteryChargeInfoFields batt_info = {0};
-    if (R_SUCCEEDED(psmGetBatteryChargePercentage(&battery_pct))) {}
-    if (R_SUCCEEDED(psmGetChargerType(&charger))) {}
-    if (R_SUCCEEDED(psmGetBatteryChargeInfoFields(&batt_info))) {}
+    if (svc_mqtt_is_open(SvcId_Psm)) {
+        psmGetBatteryChargePercentage(&battery_pct);
+        psmGetChargerType(&charger);
+        psmGetBatteryChargeInfoFields(&batt_info);
+    }
 
     s32 soc_temp = 0;
-    if (state && state->svc_ts_ready) {
+    if (svc_mqtt_is_open(SvcId_Ts)) {
         tsGetTemperature(TsLocation_Internal, &soc_temp);
     }
 
